@@ -11,6 +11,9 @@ SAFE_KEYS.update(('diagnostics', 'program', 'stdout_bytes', 'stderr_bytes', 'kno
                   'exception_types', 'installer_state', 'cli_exists', 'native_app_exists',
                   'node_home_exists', 'fixture_errors', 'code', 'fixture_requests',
                   'snapshot', 'changes', 'commit', 'lookup'))
+SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active', 'mount',
+                 'mounted', 'state', 'workspace_execution', 'present', 'ready',
+                 'policy_supported', 'reason', 'fuse_prerequisites'))
 ARTIFACT_NAMES = {'meshia_node-1.3.17-py3-none-any.whl', 'MeshiaNode-1.3.17.app.zip', 'install-1.3.17.sh'}
 
 def public(value, *, depth=0):

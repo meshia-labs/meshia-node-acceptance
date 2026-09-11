@@ -134,6 +134,41 @@ class ReleaseBoundary(unittest.TestCase):
         self.assertEqual(result['exception_types'], ['ImportError'])
         self.assertNotIn('private-sentinel', json.dumps(report.public({'diagnostics': result})))
 
+    def test_installer_readiness_diagnostics_are_typed_and_private(self):
+        value = acceptance.readiness_projection({'api_url': 'private-sentinel',
+            'native_mount_enabled': True, 'mount': {'mounted': True, 'state': 'mounted',
+                'mount_point': 'private-sentinel'},
+            'service': {'native_host_owned': True, 'manager_active': True,
+                'runtime': {'workspace_execution': {'ready': False, 'policy_supported': True,
+                    'reason': 'workspace_access_denied', 'host_id': 'private-sentinel'}}}})
+        self.assertEqual(value['workspace_execution']['reason'], 'workspace_access_denied')
+        self.assertTrue(value['mount']['mounted'])
+        self.assertNotIn('private-sentinel', json.dumps(report.public({'installer_readiness': value})))
+        self.assertEqual(acceptance.readiness_projection({'mount': {'state': 'private-sentinel'},
+            'service': {'runtime': {'workspace_execution': {'reason': 'private-sentinel'}}}})
+            ['workspace_execution']['reason'], 'unknown')
+
+    def test_fuse_diagnostics_only_execute_pinned_read_only_predicates(self):
+        with patch.object(acceptance.subprocess, 'run',
+                return_value=subprocess.CompletedProcess([], 1)) as execute:
+            value = acceptance.fuse_prerequisite_projection()
+        self.assertEqual(len(value), 19)
+        self.assertFalse(any(check['passed'] for check in value))
+        for call in execute.call_args_list:
+            argv = call.args[0]
+            self.assertIn(argv[4], {'fuse_t_path_is_safe', 'fuse_t_signed_by_pinned_team',
+                                  'fuse_t_candidate_is_compatible', 'fuse_t_receipt_is_pinned'})
+            self.assertNotIn('sudo', argv[2])
+            self.assertEqual(call.kwargs['stdout'], subprocess.DEVNULL)
+            self.assertEqual(call.kwargs['stderr'], subprocess.DEVNULL)
+
+    def test_fixed_installer_log_is_kept_without_adjacent_private_text(self):
+        reason = 'Meshia is connected, but its background service has not verified access to the mounted workspace.'
+        value = acceptance.subprocess_diagnostics(['bash'], 1, b'',
+            ('private-sentinel ' + reason + '\nprivate-sentinel').encode())
+        self.assertIn(reason, value['known_errors'])
+        self.assertNotIn('private-sentinel', json.dumps(value))
+
 class FixtureAuthority(unittest.TestCase):
     def test_real_release_client_enrollment_signature_and_revocation(self):
         from fixture_plane import AcceptancePlane

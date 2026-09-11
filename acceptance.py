@@ -75,7 +75,7 @@ def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # a captured line, expanded variable, URL, account detail or exception body.
     script = (ROOT / 'release/install-1.3.17.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
-    fixed = re.findall(r'\b(?:die|step) "([^"$`\n]{12,240})"', script)
+    fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     known = [text for text in dict.fromkeys(fixed) if text in output]
     types = [name for name in ('ModuleNotFoundError', 'ImportError', 'FileNotFoundError',
               'PermissionError', 'ConnectionError', 'TimeoutError', 'SSLCertVerificationError')
@@ -277,6 +277,74 @@ def runtime_projection(status):
     runtime = status.get("service", {}).get("runtime", {})
     return {key: runtime.get(key) for key in PUBLIC_KEYS}
 
+
+def readiness_projection(status):
+    # CLI status also contains account/config values. Publish only typed local
+    # gate evidence; never the whole status or a free-form rejection message.
+    service = status.get('service') or {}
+    runtime = service.get('runtime') or {}
+    mount = status.get('mount') or {}
+    evidence = runtime.get('workspace_execution') or {}
+    reasons = {'ready', 'policy_unavailable', 'mount_unavailable', 'not_connected',
+        'daemon_not_owned', 'identity_changed', 'workspace_access_timeout',
+        'workspace_access_denied', 'workspace_access_unavailable', 'daemon_not_live',
+        'workspace_adoption_pending', 'probe_stale', 'mount_changed'}
+    states = {'mounted', 'detached', 'orphaned', 'stopped', 'starting', 'unowned',
+        'registry_unavailable', 'invalid_receipt', 'disabled', 'runtime_missing', 'idle'}
+    return {
+        'native_mount_enabled': status.get('native_mount_enabled') is True,
+        'native_host_owned': service.get('native_host_owned') is True,
+        'manager_active': service.get('manager_active') is True,
+        'mount': {'mounted': mount.get('mounted') is True,
+                  'state': mount.get('state') if mount.get('state') in states else 'unknown'},
+        'workspace_execution': {'present': bool(evidence),
+            'ready': evidence.get('ready') is True,
+            'policy_supported': evidence.get('policy_supported') is True,
+            'reason': evidence.get('reason') if evidence.get('reason') in reasons else 'unknown'},
+    }
+
+
+def fuse_prerequisite_projection():
+    # Execute only the read-only verifier from the exact hash-pinned installer.
+    # Capture individual failed predicates, not command output or arbitrary paths.
+    verify_release()
+    source = (ROOT / 'release/install-1.3.17.sh').read_text()
+    constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
+    functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
+    libraries = ('/usr/local/lib', '/opt/homebrew/lib')
+    helper = '/Library/Application Support/fuse-t/bin'
+    checks = []
+    for index, library in enumerate(libraries):
+        paths = ((str(Path(library).parent), 'Directory'), (library, 'Directory'),
+                 (library + '/libfuse-t.dylib', 'Symbolic Link'),
+                 (library + '/libfuse-t-1.2.7.dylib', 'Regular File'))
+        for suffix, (path, kind) in enumerate(paths):
+            checks.append((f'library_{index}_path_{suffix}', 'fuse_t_path_is_safe', path, kind))
+        checks.append((f'library_{index}_signature', 'fuse_t_signed_by_pinned_team',
+                       library + '/libfuse-t-1.2.7.dylib', 'libfuse-t-1'))
+        checks.append((f'library_{index}_complete', 'fuse_t_candidate_is_compatible', library, helper))
+    for index, (path, kind) in enumerate(((str(Path(helper).parent.parent), 'Directory'),
+            (str(Path(helper).parent), 'Directory'), (helper, 'Directory'),
+            (helper + '/go-nfsv4', 'Symbolic Link'), (helper + '/go-nfsv4-1.2.7', 'Regular File'))):
+        checks.append((f'helper_path_{index}', 'fuse_t_path_is_safe', path, kind))
+    checks.append(('helper_signature', 'fuse_t_signed_by_pinned_team', helper + '/go-nfsv4-1.2.7', 'go-nfsv4-1'))
+    checks.append(('package_receipt', 'fuse_t_receipt_is_pinned'))
+    result = []
+    deadline = time.monotonic() + 12
+    for name, *args in checks:
+        if time.monotonic() >= deadline:
+            result.append({'name': name, 'passed': False, 'error_type': 'TimeoutError'})
+            break
+        try:
+            completed = subprocess.run(['/bin/bash', '-c', constants + '\n' + functions + '\n"$@"',
+                                        'fuse-read-only-proof', *args],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       timeout=min(2, max(.1, deadline - time.monotonic())))
+            result.append({'name': name, 'passed': completed.returncode == 0})
+        except (OSError, subprocess.TimeoutExpired) as error:
+            result.append({'name': name, 'passed': False, 'error_type': type(error).__name__})
+    return result
+
 def validate_owned(marker, home):
     require(marker == {"run_id": os.environ.get("GITHUB_RUN_ID"), "uid": os.getuid(),
                       "home": str(home), "fresh_installation_claimed": True},
@@ -357,6 +425,7 @@ def acceptance(directory):
     def snapshot():
         value = json.loads(run([cli, "--json", "status"], timeout=15))
         receipt["last_runtime"] = runtime_projection(value)
+        receipt['installer_readiness'] = readiness_projection(value)
         return value
 
     def ready():
@@ -526,6 +595,8 @@ time.sleep(240)
             'service_definition_exists': unit.exists(), 'node_home_exists': node_home.exists()}
         receipt['failure']['fixture_errors'] = list(plane.safe_errors)
         receipt['failure']['fixture_requests'] = dict(plane.v2_calls)
+        if phase == 'canonical_installer':
+            receipt['fuse_prerequisites'] = fuse_prerequisite_projection()
     finally:
         signal.alarm(0)
         try:
