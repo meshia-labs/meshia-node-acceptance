@@ -1,10 +1,11 @@
-# Meshia Node 1.3.18 macOS acceptance prerelease
+# Meshia Node 1.3.19 macOS acceptance prerelease
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It does not change Meshia's current public installer channel (1.3.14).
 
-Package commit: `c26962fb37f333805b6c8a2d5d89f4f11f77981d`; clean source:
-`6cc16381f5234f8801115f2f93c3abbdfa6f16e9`. The `release-lock.json` binds
+This preparation cannot run until the final notarized artifacts are bound.
+Package commit: `PENDING_FINAL_PACKAGE_COMMIT`; clean source:
+`PENDING_FINAL_SOURCE_COMMIT`. The final `release-lock.json` will bind
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -24,6 +25,11 @@ Apple developer login, cloud provider, or Meshia backend is needed.
 - Full compute uses the ordinary account and can read/write a personal canary.
 - An owner change to Workspace-only preserves workspace writes and loopback
   networking while denying outside read, write, stat and create.
+- The actual managed interpreter loads a nonempty default public CA store
+  through the signed Workspace-only command lane. Already installed Homebrew
+  Python 3.14 interpreters receive the same check; absent interpreters are
+  recorded as absent, and none is installed for this optional check. Only CA
+  counts are reported. This local trust-store read is not a WAN TLS test.
 - Signed queued execution owns a separate native coalition and cancels a
   detached child before its natural timeout, without relying on PID alone.
 - Owned service, mounts and process identities are removed at completion.
@@ -80,7 +86,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.18 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.19 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -89,8 +95,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.18-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.18-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.19-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.19-acceptance.1`
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`
@@ -115,6 +121,11 @@ never published. Earlier 1.3.17 runs
 [34549927120](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34549927120)
 failed and cleaned up on both runners. Their tagged source, artifacts and
 results remain historical evidence, not native acceptance passes.
+
+The exact 1.3.18 [run 34552641120](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34552641120)
+passed native acceptance and cleanup on both architectures. Its tagged source,
+artifacts and receipts remain unchanged. That pass did not test the additional
+TLS-directory restriction or default-public-CA coverage added for 1.3.19.
 
 Dependency downloads use the wheel's pinned Python requirements and the
 canonical installer's verified runtime prerequisites. They do not provision

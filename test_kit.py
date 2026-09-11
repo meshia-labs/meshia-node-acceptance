@@ -20,9 +20,43 @@ import report
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.18-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.19-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
+    def test_public_ca_probe_loads_real_default_store_and_rejects_empty_store(self):
+        result = subprocess.run([sys.executable, '-I', '-c', acceptance.PUBLIC_CA_PROBE],
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertGreater(json.loads(result.stdout)['ca_certificates'], 0)
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            (root / 'empty.pem').write_text('')
+            environment = dict(os.environ, SSL_CERT_FILE=str(root / 'empty.pem'), SSL_CERT_DIR=str(root))
+            result = subprocess.run([sys.executable, '-I', '-c', acceptance.PUBLIC_CA_PROBE],
+                                    env=environment, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b'Default public CA store is empty', result.stderr)
+
+    def test_public_ca_checks_use_signed_queue_for_managed_and_only_installed_homebrew(self):
+        from unittest.mock import Mock
+        managed = Path('/fixture/runtime/bin/python3')
+        enqueue = Mock(side_effect=['managed-command', 'homebrew-command'])
+        complete = Mock(return_value={'ca_certificates': 123, 'credential': 'private-sentinel'})
+        with patch.object(Path, 'is_file', side_effect=[True, False]):
+            stores = acceptance.limited_public_ca_stores(enqueue, complete, managed)
+        self.assertEqual([c.kwargs['executable'] for c in enqueue.call_args_list],
+                         [managed, Path('/opt/homebrew/bin/python3.14')])
+        self.assertEqual([c.args[0] for c in complete.call_args_list],
+                         ['managed-command', 'homebrew-command'])
+        self.assertTrue(all(c.args == (acceptance.PUBLIC_CA_PROBE,) and c.kwargs['timeout'] == 10
+                            for c in enqueue.call_args_list))
+        self.assertEqual(stores[-1], {'name': 'homebrew_intel', 'present': False})
+        self.assertNotIn('private-sentinel', json.dumps(report.public({'stores': stores})))
+        self.assertEqual(report.public({'stores': stores})['stores'][0]['ca_certificates'], 123)
+        for invalid in (0, True, '123', None, 100001):
+            with self.subTest(invalid=invalid), self.assertRaises(AssertionError):
+                acceptance.limited_public_ca_stores(Mock(), lambda _: {'ca_certificates': invalid}, managed)
+
     def test_disabled_or_changed_gatekeeper_policy_cannot_pass_assessment(self):
         for output in ((b'assessments disabled\n',),
                        (b'assessments enabled\n', b'', b'assessments disabled\n')):
@@ -38,9 +72,9 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.18')
-        self.assertEqual(lock['source_commit'], '6cc16381f5234f8801115f2f93c3abbdfa6f16e9')
-        self.assertEqual(lock['package_commit'], 'c26962fb37f333805b6c8a2d5d89f4f11f77981d')
+        self.assertEqual(manifest['version'], '1.3.19')
+        self.assertEqual(lock['source_commit'], 'PENDING_FINAL_SOURCE_COMMIT')
+        self.assertEqual(lock['package_commit'], 'PENDING_FINAL_PACKAGE_COMMIT')
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
@@ -48,7 +82,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.18.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.19.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -72,7 +106,7 @@ class ReleaseBoundary(unittest.TestCase):
             target = Path(name) / 'artifacts'
             acceptance.fetch(target)
             context = acceptance.read_json(target / 'context.json')
-            self.assertEqual(context['source'], '6cc16381f5234f8801115f2f93c3abbdfa6f16e9')
+            self.assertEqual(context['source'], 'PENDING_FINAL_SOURCE_COMMIT')
             for file, digest in context['artifacts'].items():
                 self.assertEqual(hashlib.sha256((target / file).read_bytes()).hexdigest(), digest)
 
@@ -98,7 +132,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.18-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.19-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)

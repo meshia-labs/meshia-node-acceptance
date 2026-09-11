@@ -47,8 +47,13 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "8934a3776bd8cf4d44d123f1281624a217ba7e7cba5949c1dad2de2c33e37365"
+LOCK_SHA256 = "PENDING_FINAL_1_3_19_NOTARIZED_ARTIFACTS"
 LABEL = "io.meshia.node"
+PUBLIC_CA_PROBE = """import json,ssl
+count = ssl.create_default_context().cert_store_stats()['x509_ca']
+assert count > 0, 'Default public CA store is empty'
+print(json.dumps({'ca_certificates': count}))
+"""
 
 PUBLIC_KEYS = ("pid", "native_host_pid", "package_version", "live", "runtime_ready",
                "runtime_readiness_reason", "command_safe", "command_safety_reason",
@@ -57,6 +62,24 @@ PUBLIC_KEYS = ("pid", "native_host_pid", "package_version", "live", "runtime_rea
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+def limited_public_ca_stores(enqueue, complete, managed_python):
+    # Run through the signed Limited command lane, never the fixture process.
+    # Optional Homebrew discovery is read-only and installs nothing.
+    candidates = [('managed', managed_python),
+                  ('homebrew_arm64', Path('/opt/homebrew/bin/python3.14')),
+                  ('homebrew_intel', Path('/usr/local/bin/python3.14'))]
+    stores = []
+    for name, executable in candidates:
+        if name != 'managed' and not executable.is_file():
+            stores.append({'name': name, 'present': False})
+            continue
+        result = complete(enqueue(PUBLIC_CA_PROBE, executable=executable, timeout=10))
+        count = result.get('ca_certificates')
+        require(type(count) is int and 0 < count <= 100000,
+                'Limited interpreter did not load its default public CA store')
+        stores.append({'name': name, 'present': True, 'passed': True, 'ca_certificates': count})
+    return stores
 
 def gatekeeper_status():
     status = run(["/usr/sbin/spctl", "--status"]).decode().strip()
@@ -73,7 +96,7 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.18.sh').read_text()
+    script = (ROOT / 'release/install-1.3.19.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     known = sorted((text for text in dict.fromkeys(fixed) if text in output),
@@ -154,9 +177,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.18-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.18.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.18", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.19-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.19.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.19", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -311,7 +334,7 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.18.sh').read_text()
+    source = (ROOT / 'release/install-1.3.19.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
     libraries = (('/usr/local/lib', 'libfuse-t.dylib'),
@@ -448,8 +471,8 @@ def acceptance(directory):
         write_json(directory / "owned-processes.json", [asdict(item) for item in identities])
         return identity
 
-    def enqueue(source, *args, timeout=25):
-        return plane.enqueue("exec", {"argv": [str(python), "-I", "-c", source, *map(str, args)],
+    def enqueue(source, *args, timeout=25, executable=None):
+        return plane.enqueue("exec", {"argv": [str(python if executable is None else executable), "-I", "-c", source, *map(str, args)],
             "cwd": ".", "timeout_seconds": timeout, "max_output_bytes": 16384})
 
     def complete(command_id):
@@ -563,6 +586,8 @@ print(json.dumps(checks))
                 "Workspace-only native boundary failed")
         wait("limited publication", lambda: plane.fabric_files.get("mac-limited.txt") == b"computed", 90)
         record("limited_native_compute", **limited, workspace_read_write=True, networking=True)
+        phase = "limited_public_ca_store"
+        record("limited_public_ca_store", stores=limited_public_ca_stores(enqueue, complete, python))
         phase = "detached_cancel"
         command_started = time.monotonic()
         command_id = enqueue("""import os,pathlib,time

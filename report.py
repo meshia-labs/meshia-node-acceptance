@@ -7,6 +7,7 @@ import sys
 
 SAFE_KEYS = set('passed source_commit artifacts run_id scope production_account_tested customer_privacy_prompt_ux_tested artifact_transport deployed_https_delivery_tested native_apps_tested development_host_override loopback_control_transport steps name uid os architecture gui_domain image sip gatekeeper installed_modules empty_head native_host_owned native_host_pid runner_pid mounts path type ordinary_uid outside_read_write read write stat create cpus runtime workspace_read_write networking pid stale_pid_safe_identity completion_status cancellation_seconds command_timeout_seconds cancellation_before_natural_exit last_runtime live runtime_ready runtime_readiness_reason command_safe command_safety_reason sync_converged sync_convergence_reason fabric_head_generation package_version last_command status error_code exit_code failure phase error_type cleanup required service_registered service_definition_exists mounts_remaining owned_processes_gone errors action'.split())
 SAFE_KEYS.update(('codesign_verified', 'notarization_ticket_valid', 'gatekeeper_accepted'))
+SAFE_KEYS.update(('stores', 'ca_certificates'))
 SAFE_KEYS.update(('diagnostics', 'program', 'stdout_bytes', 'stderr_bytes', 'known_errors',
                   'exception_types', 'installer_state', 'cli_exists', 'native_app_exists',
                   'node_home_exists', 'fixture_errors', 'code', 'fixture_requests',
@@ -14,7 +15,7 @@ SAFE_KEYS.update(('diagnostics', 'program', 'stdout_bytes', 'stderr_bytes', 'kno
 SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active', 'mount',
                  'mounted', 'state', 'workspace_execution', 'present', 'ready',
                  'policy_supported', 'reason', 'fuse_prerequisites'))
-ARTIFACT_NAMES = {'meshia_node-1.3.18-py3-none-any.whl', 'MeshiaNode-1.3.18.app.zip', 'install-1.3.18.sh'}
+ARTIFACT_NAMES = {'meshia_node-1.3.19-py3-none-any.whl', 'MeshiaNode-1.3.19.app.zip', 'install-1.3.19.sh'}
 
 def public(value, *, depth=0):
     if depth > 6:
@@ -42,7 +43,7 @@ def main(directory):
     print(rendered)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write('### Exact 1.3.18 acceptance\n\n```json\n' + rendered + '\n```\n')
+            output.write('### Exact 1.3.19 acceptance\n\n```json\n' + rendered + '\n```\n')
 
 if __name__ == '__main__':
     main(sys.argv[1])
