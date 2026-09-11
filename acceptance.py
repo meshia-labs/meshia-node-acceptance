@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "fd94d092f541f306419f7d4f2087faceff4bd8998a99ffefa9bb39891c77559d"
+LOCK_SHA256 = "d9b65b9cfde71c023791cf07d372c9d3dfafa24bb63e803a39ff9b473a6c688b"
 LABEL = "io.meshia.node"
 PUBLIC_CA_PROBE = """import json,ssl
 count = ssl.create_default_context().cert_store_stats()['x509_ca']
@@ -117,7 +117,7 @@ def native_completion_diagnostics(completion):
     text = output.decode(errors='replace') + '\n' + (message[:4096] if isinstance(message, str) else '')
     fixed = ['Default public CA store is empty',
              'The command exceeded its timeout and its process session was stopped.']
-    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.24-py3-none-any.whl') as archive:
+    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.25-py3-none-any.whl') as archive:
         for module in ('native_command', 'macos_native', 'native_execution', 'workspace'):
             source = archive.read('meshia_node/' + module + '.py').decode()
             fixed.extend(re.findall(r'raise [A-Za-z_]\w*\("([^"$\n]{8,240})"\)', source))
@@ -170,7 +170,7 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.24.sh').read_text()
+    script = (ROOT / 'release/install-1.3.25.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     known = sorted((text for text in dict.fromkeys(fixed) if text in output),
@@ -251,9 +251,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.24-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.24.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.24", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.25-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.25.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.25", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -391,6 +391,12 @@ def readiness_projection(status):
         'workspace_adoption_pending', 'probe_stale', 'mount_changed'}
     states = {'mounted', 'detached', 'orphaned', 'stopped', 'starting', 'unowned',
         'registry_unavailable', 'invalid_receipt', 'disabled', 'runtime_missing', 'idle'}
+    phases = {'before_child_entry', 'child_entry', 'root_import', 'root_setup', 'root_lstat',
+        'root_open', 'root_fstat', 'root_lstat_after_open', 'root_realpath',
+        'root_lstat_after_realpath', 'root_scandir', 'root_readdir', 'root_close', 'complete'}
+    phase = evidence.get('probe_phase')
+    probe = ({'probe_phase': phase} if evidence.get('ready') is False
+             and isinstance(phase, str) and phase in phases else {})
     return {
         'native_mount_enabled': status.get('native_mount_enabled') is True,
         'native_host_owned': service.get('native_host_owned') is True,
@@ -400,7 +406,7 @@ def readiness_projection(status):
         'workspace_execution': {'present': bool(evidence),
             'ready': evidence.get('ready') is True,
             'policy_supported': evidence.get('policy_supported') is True,
-            'reason': evidence.get('reason') if evidence.get('reason') in reasons else 'unknown'},
+            'reason': evidence.get('reason') if evidence.get('reason') in reasons else 'unknown', **probe},
     }
 
 
@@ -408,7 +414,7 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.24.sh').read_text()
+    source = (ROOT / 'release/install-1.3.25.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
     libraries = (('/usr/local/lib', 'libfuse-t.dylib'),
