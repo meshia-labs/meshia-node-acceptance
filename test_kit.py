@@ -39,8 +39,8 @@ class ReleaseBoundary(unittest.TestCase):
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
         self.assertEqual(manifest['version'], '1.3.18')
-        self.assertEqual(lock['source_commit'], 'PENDING_FINAL_SOURCE_COMMIT')
-        self.assertEqual(lock['package_commit'], 'PENDING_FINAL_PACKAGE_COMMIT')
+        self.assertEqual(lock['source_commit'], '6cc16381f5234f8801115f2f93c3abbdfa6f16e9')
+        self.assertEqual(lock['package_commit'], 'c26962fb37f333805b6c8a2d5d89f4f11f77981d')
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
@@ -72,7 +72,7 @@ class ReleaseBoundary(unittest.TestCase):
             target = Path(name) / 'artifacts'
             acceptance.fetch(target)
             context = acceptance.read_json(target / 'context.json')
-            self.assertEqual(context['source'], 'PENDING_FINAL_SOURCE_COMMIT')
+            self.assertEqual(context['source'], '6cc16381f5234f8801115f2f93c3abbdfa6f16e9')
             for file, digest in context['artifacts'].items():
                 self.assertEqual(hashlib.sha256((target / file).read_bytes()).hexdigest(), digest)
 

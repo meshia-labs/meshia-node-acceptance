@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "PENDING_FINAL_1_3_18_NOTARIZED_ARTIFACTS"
+LOCK_SHA256 = "8934a3776bd8cf4d44d123f1281624a217ba7e7cba5949c1dad2de2c33e37365"
 LABEL = "io.meshia.node"
 
 PUBLIC_KEYS = ("pid", "native_host_pid", "package_version", "live", "runtime_ready",

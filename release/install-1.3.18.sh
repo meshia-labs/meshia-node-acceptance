@@ -1269,9 +1269,10 @@ fuse_t_receipt_is_pinned() {
   printf '%s\n' "$details" | grep -Fx "version: $FUSE_T_VERSION" >/dev/null
 }
 
-fuse_t_candidate_is_compatible() { # fuse_t_candidate_is_compatible <library-dir> <helper-dir>
+fuse_t_candidate_is_compatible() { # <library-dir> <helper-dir> [library-entry]
   local library_dir="$1" helper_dir="$2"
-  local library_link="$library_dir/libfuse-t.dylib"
+  local library_entry="${3:-libfuse-t.dylib}"
+  local library_link="$library_dir/$library_entry"
   local library_name="libfuse-t-$FUSE_T_VERSION.dylib"
   local library_target="$library_dir/$library_name"
   local helper_link="$helper_dir/go-nfsv4"
@@ -1279,10 +1280,18 @@ fuse_t_candidate_is_compatible() { # fuse_t_candidate_is_compatible <library-dir
   local helper_target="$helper_dir/$helper_name"
   local link_target="" directory=""
 
-  [ -L "$library_link" ] && [ -e "$library_link" ] || return 1
-  link_target="$("$FUSE_T_READLINK_BIN" "$library_link" 2>/dev/null)" \
-    || return 1
-  [ "$link_target" = "$library_name" ] || return 1
+  if [ "$library_entry" = "$library_name" ]; then
+    # The protected vendor payload has a versioned regular file and no alias.
+    [ ! -L "$library_target" ] || return 1
+  elif [ "$library_entry" = "libfuse-t.dylib" ]; then
+    [ -L "$library_link" ] && [ -e "$library_link" ] || return 1
+    link_target="$("$FUSE_T_READLINK_BIN" "$library_link" 2>/dev/null)" \
+      || return 1
+    [ "$link_target" = "$library_name" ] || return 1
+    fuse_t_path_is_safe "$library_link" "Symbolic Link" || return 1
+  else
+    return 1
+  fi
   [ -L "$helper_link" ] && [ -e "$helper_link" ] || return 1
   link_target="$("$FUSE_T_READLINK_BIN" "$helper_link" 2>/dev/null)" \
     || return 1
@@ -1294,7 +1303,6 @@ fuse_t_candidate_is_compatible() { # fuse_t_candidate_is_compatible <library-dir
     "$(dirname "$helper_dir")" "$helper_dir"; do
     fuse_t_path_is_safe "$directory" "Directory" || return 1
   done
-  fuse_t_path_is_safe "$library_link" "Symbolic Link" || return 1
   fuse_t_path_is_safe "$library_target" "Regular File" || return 1
   fuse_t_path_is_safe "$helper_link" "Symbolic Link" || return 1
   fuse_t_path_is_safe "$helper_target" "Regular File" || return 1
@@ -1308,6 +1316,14 @@ fuse_t_candidate_is_compatible() { # fuse_t_candidate_is_compatible <library-dir
 }
 
 fuse_t_available() {
+  # The signed core package owns this path. Its optional /usr/local copy can
+  # sit in a Homebrew-writable directory; never weaken that trust check or
+  # change permissions on the customer's package-manager prefix.
+  if fuse_t_candidate_is_compatible \
+    "/Library/Application Support/fuse-t/lib" "/Library/Application Support/fuse-t/bin" \
+    "libfuse-t-$FUSE_T_VERSION.dylib"; then
+    return 0
+  fi
   local library_dir=""
   for library_dir in /usr/local/lib /opt/homebrew/lib; do
     if fuse_t_candidate_is_compatible \
@@ -2519,7 +2535,7 @@ PY
 
   ARCHIVE="$WORK_DIR/$(basename "${PACKAGE_URL%%\?*}")"
   ui_run_quiet "Downloading the signed Meshia package" fetch "$PACKAGE_URL" "$ARCHIVE" \
-    || die "could not download $PACKAGE_URL"
+    || die "could not download the signed Meshia package; check your connection and request a fresh install command"
   if [ -n "$PACKAGE_SHA256" ]; then
     verify_sha256 "$ARCHIVE" "$PACKAGE_SHA256" "meshia-node package"
   elif [ "$INSECURE_DEV" = "1" ]; then
