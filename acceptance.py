@@ -597,6 +597,35 @@ def acceptance(directory):
         require(private.read_text() == 'full', 'Native app changed the personal canary')
         record(mode + '_native_app', **facts, owned_process_stopped=True)
 
+    def durable_rename(source, destination, expected):
+        # Wait cheaply on the fixture's durable namespace, then verify its
+        # actual signed snapshot/lookup surfaces once. A destination PUT alone
+        # cannot satisfy this predicate while the source still exists.
+        wait("durable rename and source removal", lambda: plane.fabric_files.get(destination) == expected
+             and source not in plane.v2_entries and source not in plane.fabric_files, 90)
+        from meshia_node.client import SignedClient
+        from meshia_node.config import ConfigStore, Paths
+        from meshia_node.identity import DeviceIdentity
+        from meshia_node.fabric import SignedFabricTransport
+        import cow_acceptance
+        paths = Paths(node_home)
+        store = ConfigStore(paths); current = store.require()
+        require(current.api_url == plane.origin and current.host_id in plane.hosts,
+                "Rename observer must use this disposable loopback account")
+        transport = SignedFabricTransport(SignedClient(store, DeviceIdentity.load_or_create(paths.identity_dir)),
+                                         current.host_id, allow_insecure_loopback=True)
+        common = {"attachment_id": current.attachment_id, "workspace": "workspace"}
+        facts = cow_acceptance.verify_rename_projection(
+            transport.snapshot_v2({**common, "limit": 256}),
+            transport.lookup_v2({**common, "path": source}),
+            transport.lookup_v2({**common, "path": destination}),
+            source=source, destination=destination, size=len(expected))
+        descriptor = plane.v2_entries[destination]
+        data, _ = plane._v2_file_bytes({"kind": "file", "size_bytes": descriptor['size_bytes'],
+            "sha256": descriptor['sha256'], "blocks": descriptor['blocks'], "modified_at": None})
+        require(data == expected, "Authoritative renamed bytes changed")
+        return {**facts, "durable_publication": True}
+
     def expired(_signum, _frame):
         raise TimeoutError("Mac acceptance reached its ten-minute test deadline")
 
@@ -663,15 +692,21 @@ def acceptance(directory):
         require(records and all(item["type"] in ("smbfs", "nfs", "fuse", "osxfuse", "macfuse") for item in records),
                 "No actual native filesystem mount was observed")
         record("native_mount_roundtrip", mounts=records)
+        phase = "classic_dirty_rename"
+        run([python, "-I", "-c", "import os,pathlib,sys;p,q=map(pathlib.Path,sys.argv[1:]);"
+             "f=p.open('wb');f.write(b'mounted-edited');f.flush();os.fsync(f.fileno());f.close();"
+             "p.rename(q);assert not p.exists() and q.read_bytes()==b'mounted-edited'",
+             workspace / "mac-mounted.txt", workspace / "mac-mounted-renamed.txt"])
+        record("native_classic_dirty_rename", **durable_rename("mac-mounted.txt", "mac-mounted-renamed.txt", b"mounted-edited"))
         phase = "mounted_cold_cow"
         import cow_acceptance
         seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
         # Observe namespace publication without warming the seeded file bytes.
-        def cold_namespace_ready():
+        def cold_namespace_ready(sequence):
             value = ready()
             return (value is not None and value.get("service", {}).get("runtime", {})
-                    .get("fabric_head_generation", -1) >= seed["entry_seq"])
-        wait("cold file namespace", cold_namespace_ready, 45)
+                    .get("fabric_head_generation", -1) >= sequence)
+        wait("cold file namespace", lambda: cold_namespace_ready(seed["entry_seq"]), 45)
         require(plane.cow_source_read_bytes[seed["content_sha256"]] == 0,
                 "Cold acceptance source was already downloaded")
         cow = json.loads(run([python, "-I", "-c", cow_acceptance.PROBE, workspace / cow_acceptance.PATH]))
@@ -682,6 +717,34 @@ def acceptance(directory):
                source_size_bytes=seed["size_bytes"], source_digest=seed["digest"],
                cold_source_initially_uncached=True,
                source_read_bytes=plane.cow_source_read_bytes[seed["content_sha256"]])
+        phase = "mounted_raw_cow"
+        raw_source = cow_acceptance.canonical_raw_source()
+        raw_seed = plane.seed_canonical_raw_file(raw_source, cow_acceptance.RAW_BASE)
+        wait("canonical raw source namespace", lambda: cold_namespace_ready(raw_seed['entry_seq']), 45)
+        source_digests = {block['sha256'] for block in raw_source['blocks']['blocks']}
+        before_reads = sum(plane.cow_source_read_bytes[digest] for digest in source_digests)
+        require(before_reads == 0, "Canonical raw source was already downloaded")
+        raw = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_PROBE,
+                             workspace / raw_source['path'], workspace / cow_acceptance.RAW_DESTINATION]))
+        require(raw['content_sha256'] == hashlib.sha256(cow_acceptance.expected_bytes()).hexdigest()
+                and raw['size_bytes'] == len(cow_acceptance.expected_bytes()), "Raw mounted result changed")
+        record("native_raw_sha_cow_rename", **raw,
+               **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
+               cold_source_initially_uncached=True, source_size_bytes=len(cow_acceptance.RAW_BASE),
+               source_digest=raw_source['digest'], source_read_bytes=sum(plane.cow_source_read_bytes[d] for d in source_digests))
+        phase = "owned_service_remount"
+        before_restart = snapshot()['service']['runtime']
+        prior = [remember(before_restart[key]) for key in ('pid', 'native_host_pid')]
+        run([cli, "--json", "service", "restart", "--wait", "--expected-version", manifest['version'],
+             "--timeout-seconds", "60"], timeout=90)
+        replacement = wait("owned restarted service", ready, 15)['service']['runtime']
+        require(all(kernel.identity(identity.pid) != identity for identity in prior), "Old native runtime survived restart")
+        remember(replacement['pid']); remember(replacement['native_host_pid'])
+        reopened = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_REOPEN_PROBE,
+                                  workspace / cow_acceptance.RAW_DESTINATION, workspace / raw_source['path']]))
+        record("native_service_restart_readback", **reopened,
+               **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
+               service_restart_readback=True, pending_journal_crash_recovery_tested=False)
         phase = "full_command"
         private = home / "meshia-acceptance-personal.txt"
         require(not private.exists(), "Personal canary unexpectedly exists")

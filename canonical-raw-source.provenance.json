@@ -1,0 +1,15 @@
+{
+  "schema": "meshia.acceptance.canonical_web_fixture.v1",
+  "source_commit": "3a9fbe3a1f9c6d0dbb0a67cf145a9057511f77a4",
+  "generator": "web/scripts/fixtures/native-journal-source-manifest.ts",
+  "generator_sha256": "e8dbd7df5dd66ad783708a5c01735304af871681a50854431f776f59cd1a292f",
+  "real_layers": ["buildWorkspaceStorageManifest", "publishManifestEntriesAsFabricV2", "parseFabricV2Ops"],
+  "fixture_layers": ["binding lookup", "object presence", "database commit receipt"],
+  "data_pattern": "9437184 bytes, each byte equals offset modulo256",
+  "files": {
+    "canonical-raw-source.json": {"argument": "implicit", "sha256": "fbb8b377c7ea9290f1ba26b321452ccec14c39dafb29092db37024cc5b14e363"},
+    "canonical-raw-source-explicit.json": {"argument": "sha256", "sha256": "638b24ac83884a4dc28c27b93f37d4a02e88abaf2000de209fc60227500becd2"}
+  },
+  "network_or_provider_actions": false,
+  "production_manifest_claim": false
+}

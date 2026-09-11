@@ -21,7 +21,9 @@ from fixture_control_plane import Rejected, UUID_RE, FABRIC_BLOCK_READ_SCHEMA
 _TREE_ALGORITHM = 'sha256_tree_v1'
 _TREE_DOMAIN = b'meshia.fabric.file-tree.v1\x00'
 _STORAGE = 'connected_host_object_cas_v1'
+_STORAGES = {_STORAGE, 'object_cas_v1'}
 _MAX_FILE = 4 * 1024 * 1024
+_MAX_SOURCE = 9 * 1024 * 1024
 _PAGE = 4096
 
 
@@ -67,7 +69,8 @@ def _tree_node(raw, height):
 def _tree_descriptor(value, size, digest):
     if (not isinstance(value, dict) or set(value) != {'version', 'algorithm', 'file_digest_algorithm', 'total_bytes', 'tree', 'storage'}
             or type(value['version']) is not int or value['version'] != 1 or value['algorithm'] != 'sha256'
-            or value['file_digest_algorithm'] != _TREE_ALGORITHM or value['storage'] != {'kind': _STORAGE}
+            or value['file_digest_algorithm'] != _TREE_ALGORITHM or not isinstance(value['storage'], dict)
+            or set(value['storage']) != {'kind'} or value['storage']['kind'] not in _STORAGES
             or type(size) is not int or not 0 <= size <= _MAX_FILE or type(value['total_bytes']) is not int
             or value['total_bytes'] != size):
         raise ValueError('Invalid tree descriptor')
@@ -95,6 +98,7 @@ class FabricV2Fixture:
         self.v2_tree_nodes = set()
         self.v2_data_proofs = set()
         self.v2_file_holds = {}
+        self.v2_mutation_storage = {}
         self.cow_source_read_bytes = {}
         self.cow_counters = {'holds_acquired': 0, 'holds_released': 0,
                              'held_reads': 0, 'tree_commits': 0, 'tree_node_proofs': 0}
@@ -127,6 +131,36 @@ class FabricV2Fixture:
                 'digest': digest, 'prev_digest': None, 'size_bytes': size, 'blocks': copy.deepcopy(blocks),
                 'destination_path': None, 'mutation_id': str(uuid.uuid4()), 'committed_at': now})
             return {'path': path, 'size_bytes': size, 'digest': digest, 'entry_seq': seq, 'content_sha256': sha}
+
+    def seed_canonical_raw_file(self, op, data):
+        """Install the checked-in actual web generator output, not a new descriptor."""
+        with self._state_lock:
+            if set(op) != {'op', 'path', 'kind', 'digest', 'size_bytes', 'blocks'} or op['op'] != 'put' or op['kind'] != 'file':
+                raise ValueError('Invalid canonical source operation')
+            path = self._fabric_path(op['path'])
+            if path in self.v2_entries or not isinstance(data, bytes):
+                raise ValueError('Canonical source requires a new fixture path')
+            size, digest, blocks = self._v2_put_descriptor({'kind': 'file', 'size_bytes': op['size_bytes'],
+                'sha256': op['digest'], 'blocks': op['blocks'], 'modified_at': None})
+            if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+                raise ValueError('Canonical source bytes changed')
+            for block in blocks['blocks']:
+                raw = data[block['offset_bytes']:block['offset_bytes']+block['size_bytes']]
+                if hashlib.sha256(raw).hexdigest() != block['sha256']:
+                    raise ValueError('Canonical source block changed')
+                sha = block['sha256']
+                self.fabric_cas[sha] = raw
+                self.fabric_cas_metadata[sha] = self._canonical_block_metadata(sha, len(raw))
+                self.v2_data_proofs.add((sha, len(raw)))
+                self.cow_source_read_bytes.setdefault(sha, 0)
+            seq, now = len(self.v2_journal)+1, datetime.now(timezone.utc).isoformat()
+            self.v2_entries[path] = {'path': path, 'kind': 'file', 'size_bytes': size, 'sha256': digest,
+                                    'entry_seq': seq, 'updated_at': now, 'blocks': copy.deepcopy(blocks)}
+            self.fabric_files[path], self.fabric_file_blocks[path] = data, copy.deepcopy(blocks)
+            self.v2_journal.append({'seq': seq, 'path': path, 'op': 'put', 'kind': 'file', 'digest': digest,
+                'prev_digest': None, 'size_bytes': size, 'blocks': copy.deepcopy(blocks),
+                'destination_path': None, 'mutation_id': str(uuid.uuid4()), 'committed_at': now})
+            return copy.deepcopy(self.v2_entries[path])
 
     def _tree_bytes(self, descriptor, size, digest, *, nodes=None, data_proofs=None):
         """Resolve only admitted typed objects, with bounded logical traversal."""
@@ -166,6 +200,19 @@ class FabricV2Fixture:
 
     def _v2_put_descriptor(self, descriptor):
         blocks = descriptor.get('blocks')
+        if isinstance(blocks, dict) and blocks.get('storage') == {'kind': 'object_cas_v1'} and blocks.get('file_digest_algorithm') != _TREE_ALGORITHM:
+            expected = {'version', 'algorithm', 'block_size_bytes', 'block_count', 'total_bytes', 'storage', 'blocks'}
+            if (set(blocks) not in (expected, expected | {'file_digest_algorithm'})
+                    or blocks.get('file_digest_algorithm', 'sha256') != 'sha256'):
+                raise Rejected(400, 'FABRIC_MUTATION_DESCRIPTOR_INVALID')
+            # Reuse geometry validation only; preserve the generator's storage
+            # and raw-content identity verbatim in every served descriptor.
+            check = {**blocks, 'storage': {'kind': _STORAGE}}
+            check.pop('file_digest_algorithm', None)
+            size, digest, _ = self._normalize_put_descriptor({**descriptor, 'blocks': check})
+            if not 0 < size <= _MAX_SOURCE:
+                raise Rejected(413, 'FIXTURE_FILE_TOO_LARGE')
+            return size, digest, copy.deepcopy(blocks)
         if not isinstance(blocks, dict) or blocks.get('file_digest_algorithm') != _TREE_ALGORITHM:
             return self._normalize_put_descriptor(descriptor)
         size = descriptor.get('size_bytes')
@@ -180,7 +227,10 @@ class FabricV2Fixture:
         size, digest, blocks = self._v2_put_descriptor(descriptor)
         if blocks.get('file_digest_algorithm') == _TREE_ALGORITHM:
             return self._tree_bytes(blocks, size, digest), blocks
-        return self._put_descriptor_locked(descriptor)
+        data = b''.join(self._verify_canonical_block_locked(block) for block in blocks['blocks'])
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+            raise Rejected(400, 'FABRIC_MUTATION_DESCRIPTOR_INVALID')
+        return data, blocks
 
     def _file_hold(self, host, payload):
         action = payload.get('action')
@@ -215,7 +265,7 @@ class FabricV2Fixture:
         else:
             path = self._fabric_path(payload.get('path'))
             digest = self._raw_digest(payload.get('file_digest'))
-            size = self._integer(payload.get('size_bytes'), minimum=0, maximum=_MAX_FILE, code='FABRIC_FILE_HOLD_INVALID')
+            size = self._integer(payload.get('size_bytes'), minimum=0, maximum=_MAX_SOURCE, code='FABRIC_FILE_HOLD_INVALID')
             mode = payload.get('mode')
             if mode not in {'read', 'write'}:
                 raise Rejected(400, 'FABRIC_FILE_HOLD_INVALID')
@@ -242,8 +292,11 @@ class FabricV2Fixture:
 
     def _tree_verify(self, host, payload):
         self._exact_keys(payload, {'operation', 'mutation_id', 'blocks', 'storage_kind', 'tree_nodes'})
-        if payload.get('storage_kind', _STORAGE) != _STORAGE:
+        storage = payload.get('storage_kind', _STORAGE)
+        if storage not in _STORAGES:
             raise Rejected(400, 'FIXTURE_STORAGE_UNSUPPORTED')
+        if self.v2_mutation_storage.get((host.session_id, payload.get('mutation_id')), _STORAGE) != storage:
+            raise Rejected(409, 'FIXTURE_STORAGE_CHANGED')
         _requested, blocks = self._block_descriptors(payload.get('blocks'), maximum=4)
         for block in blocks:
             self._verify_canonical_block_locked(block)
@@ -254,7 +307,7 @@ class FabricV2Fixture:
         admitted, candidates = [], []
         try:
             for node in raw_nodes:
-                if not isinstance(node, dict) or set(node) != {'storage_kind', 'sha256', 'bytes_b64'} or node['storage_kind'] != _STORAGE:
+                if not isinstance(node, dict) or set(node) != {'storage_kind', 'sha256', 'bytes_b64'} or node['storage_kind'] != storage:
                     raise ValueError('Invalid typed node')
                 sha = self._raw_digest(node['sha256'])
                 if not isinstance(node['bytes_b64'], str) or len(node['bytes_b64']) > 5500:
@@ -276,7 +329,7 @@ class FabricV2Fixture:
                         raise Rejected(409, 'FABRIC_TREE_CLOSURE_UNAVAILABLE')
                     self._verify_canonical_block_locked({'sha256': ref[1], 'size_bytes': ref[2]})
                 nodes.add((sha, size, height))
-                admitted.append({'storage_kind': _STORAGE, 'sha256': sha, 'size_bytes': size})
+                admitted.append({'storage_kind': storage, 'sha256': sha, 'size_bytes': size})
         except (ValueError, TypeError, KeyError, IndexError) as error:
             raise Rejected(400, 'FABRIC_TREE_INVALID') from error
         status, response = super().fabric_blocks(host, {key: value for key, value in payload.items()
@@ -284,7 +337,7 @@ class FabricV2Fixture:
         self.v2_tree_nodes = nodes
         self.v2_data_proofs = data_proofs
         self.cow_counters['tree_node_proofs'] += len(admitted)
-        return status, {**response, 'storage_kind': _STORAGE, 'admitted_nodes': admitted}
+        return status, {**response, 'storage_kind': storage, 'admitted_nodes': admitted}
 
     def _v2_authority(self, host, payload, fields):
         self._exact_keys(payload, {'attachment_id', 'workspace'} | set(fields))
@@ -329,6 +382,20 @@ class FabricV2Fixture:
                          'entry': copy.deepcopy(self.v2_entries.get(path))}
 
     def fabric_blocks(self, host, payload, *, content_encoding_identity=False):
+        if payload.get('operation') == 'write_batch' and 'items' not in payload:
+            with self._state_lock:
+                storage = payload.get('storage_kind', _STORAGE)
+                if storage not in _STORAGES:
+                    raise Rejected(400, 'FIXTURE_STORAGE_UNSUPPORTED')
+                key = (host.session_id, payload.get('mutation_id'))
+                if self.v2_mutation_storage.get(key, storage) != storage:
+                    raise Rejected(409, 'FIXTURE_STORAGE_CHANGED')
+                status, result = super().fabric_blocks(host, {k: v for k, v in payload.items() if k != 'storage_kind'},
+                    content_encoding_identity=content_encoding_identity)
+                self.v2_mutation_storage[key] = storage
+                if storage != _STORAGE:
+                    result = {**result, 'tickets': [{**ticket, 'storage_kind': storage} for ticket in result['tickets']]}
+                return status, result
         if payload.get('operation') == 'file_hold':
             with self._state_lock:
                 return self._file_hold(host, payload)
@@ -449,11 +516,26 @@ class FabricV2Fixture:
             for op in ops:
                 if not isinstance(op, dict):
                     raise Rejected(400, 'FABRIC_OPS_INVALID')
-                self._exact_keys(op, {'op', 'path', 'kind', 'digest', 'size_bytes', 'blocks', 'prev_digest', 'modified_at', 'empty_directory_only'})
+                self._exact_keys(op, {'op', 'path', 'kind', 'digest', 'size_bytes', 'blocks', 'prev_digest', 'modified_at',
+                                     'empty_directory_only', 'destination_path', 'source_path', 'source_prev_digest'})
                 path = self._fabric_path(op.get('path'))
-                if path in seen or op.get('op') not in {'put', 'delete'}:
+                if path in seen or op.get('op') not in {'put', 'delete', 'rename'}:
                     raise Rejected(400, 'FIXTURE_OPERATION_UNSUPPORTED')
                 seen.add(path)
+                related = None
+                if op['op'] == 'rename':
+                    related = self._fabric_path(op.get('destination_path'))
+                elif 'destination_path' in op:
+                    raise Rejected(400, 'FABRIC_OPS_INVALID')
+                if 'source_path' in op or 'source_prev_digest' in op:
+                    if op['op'] != 'put' or op.get('kind', 'file') != 'file':
+                        raise Rejected(400, 'FABRIC_OPS_INVALID')
+                    related = self._fabric_path(op.get('source_path'))
+                    self._raw_digest(op.get('source_prev_digest'))
+                if related is not None:
+                    if related in seen or related.startswith(path+'/') or path.startswith(related+'/'):
+                        raise Rejected(400, 'FABRIC_OPS_INVALID')
+                    seen.add(related)
                 previous = op.get('prev_digest')
                 if previous is not None:
                     self._raw_digest(previous)
@@ -514,12 +596,32 @@ class FabricV2Fixture:
                 if actual != op.get('prev_digest') or (op['op'] == 'put' and op.get('prev_digest') is None and current is not None):
                     verdicts.append({'index': index, 'path': path, 'status': 'rejected', 'code': 'FABRIC_PATH_DIVERGED', 'observed_digest': actual})
                     continue
+                if op['op'] == 'rename':
+                    destination = op['destination_path']
+                    if current is None or current['kind'] != 'file' or destination in self.v2_entries:
+                        verdicts.append({'index': index, 'path': path, 'status': 'rejected',
+                                         'code': 'FABRIC_PATH_DIVERGED', 'observed_digest': actual})
+                        continue
+                source = op.get('source_path')
+                if source is not None:
+                    prior = self.v2_entries.get(source)
+                    if prior is None or prior['kind'] != 'file' or prior['sha256'] != op['source_prev_digest']:
+                        verdicts.append({'index': index, 'path': path, 'status': 'rejected',
+                                         'code': 'FABRIC_PATH_DIVERGED', 'observed_digest': actual})
+                        continue
                 if op['op'] == 'delete' and any(p.startswith(path+'/') for p in self.v2_entries):
                     raise Rejected(409, 'FIXTURE_DIRECTORY_DELETE_UNSUPPORTED')
                 seq = len(self.v2_journal)+1
                 now = datetime.now(timezone.utc).isoformat()
                 kind = op.get('kind') or (current or {}).get('kind', 'file')
-                if op['op'] == 'put':
+                if op['op'] == 'rename':
+                    destination = op['destination_path']
+                    self.v2_entries[destination] = {**self.v2_entries.pop(path), 'path': destination,
+                                                    'entry_seq': seq, 'updated_at': now}
+                    self.fabric_files[destination] = self.fabric_files.pop(path)
+                    self.fabric_file_blocks[destination] = self.fabric_file_blocks.pop(path)
+                    blocks = self.fabric_file_blocks[destination]
+                elif op['op'] == 'put':
                     entry = {'path': path, 'kind': kind, 'size_bytes': len(data) if data is not None else 0,
                              'sha256': op.get('digest'), 'entry_seq': seq, 'updated_at': now,
                              **({'blocks': blocks} if blocks is not None else {}),
@@ -530,11 +632,16 @@ class FabricV2Fixture:
                         self.fabric_file_blocks[path] = blocks
                         if blocks.get('file_digest_algorithm') == _TREE_ALGORITHM:
                             self.cow_counters['tree_commits'] += 1
+                    if source is not None:
+                        self.v2_entries.pop(source)
+                        self.fabric_files.pop(source, None); self.fabric_file_blocks.pop(source, None)
                 else:
                     self.v2_entries.pop(path, None); self.fabric_files.pop(path, None); self.fabric_file_blocks.pop(path, None)
                 self.v2_journal.append({'seq': seq, 'path': path, 'op': op['op'], 'kind': kind,
-                    'digest': op.get('digest'), 'prev_digest': op.get('prev_digest'), 'size_bytes': op.get('size_bytes', 0),
-                    'blocks': blocks, 'destination_path': None, 'mutation_id': mutation, 'committed_at': now,
+                    'digest': actual if op['op'] == 'rename' else op.get('digest'), 'prev_digest': op.get('prev_digest'),
+                    'size_bytes': current['size_bytes'] if op['op'] == 'rename' else op.get('size_bytes', 0),
+                    'blocks': blocks, 'destination_path': op.get('destination_path'), 'mutation_id': mutation, 'committed_at': now,
+                    **({'source_path': source, 'source_prev_digest': op['source_prev_digest']} if source is not None else {}),
                     **({'modified_at': op['modified_at']} if op.get('modified_at') is not None else {})})
                 verdicts.append({'index': index, 'path': path, 'status': 'applied', 'seq': seq,
                     **({'modified_at': op['modified_at']} if op.get('modified_at') is not None else {})})

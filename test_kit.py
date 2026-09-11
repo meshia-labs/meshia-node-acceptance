@@ -39,6 +39,33 @@ class ReleaseBoundary(unittest.TestCase):
             self.assertEqual(report.public(result), result)
             self.assertFalse(cow_acceptance.validate({**result, 'regrow_zero_fill': False}))
 
+    def test_canonical_raw_workload_and_signed_rename_projection_refuse_retained_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'data.bin'
+            destination = Path(directory) / cow_acceptance.RAW_DESTINATION
+            source.write_bytes(cow_acceptance.RAW_BASE)
+            result = json.loads(subprocess.check_output([sys.executable, '-I', '-c',
+                cow_acceptance.RAW_PROBE, str(source), str(destination)], timeout=10))
+            self.assertTrue(result['cross_block_write'] and result['local_rename'])
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), cow_acceptance.expected_bytes())
+            reopened = json.loads(subprocess.check_output([sys.executable, '-I', '-c',
+                cow_acceptance.RAW_REOPEN_PROBE, str(destination), str(source)], timeout=10))
+            self.assertTrue(reopened['mounted_readback'])  # Workload only; no OS mount or service restart locally.
+        new = {'path': 'new', 'kind': 'file', 'size_bytes': 7, 'sha256': 'a'*64}
+        old = {**new, 'path': 'old'}
+        snapshot_base = {'schema': 'meshia.fabric_v2.snapshot.v1', 'workspace': 'workspace', 'next_after': None}
+        lookup_base = {'schema': 'meshia.fabric_v2.entry.v1', 'workspace': 'workspace'}
+        for entries, lookup in (([old, new], {'entry': old}), ([new], {'entry': old}),
+                                ([old, new], {'entry': None}), ([new], {}), ([new, new], {'entry': None})):
+            with self.assertRaises(AssertionError):
+                cow_acceptance.verify_rename_projection({**snapshot_base, 'entries': entries},
+                    {**lookup_base, **lookup}, {**lookup_base, 'entry': new},
+                    source='old', destination='new', size=7)
+        facts = cow_acceptance.verify_rename_projection({**snapshot_base, 'entries': [new]},
+            {**lookup_base, 'entry': None}, {**lookup_base, 'entry': new}, source='old', destination='new', size=7)
+        self.assertEqual(report.public(facts), facts)
+
     def test_ca_progress_persists_exact_candidate_before_admission_failure(self):
         snapshots = []
         def enqueue(*args, **kwargs):

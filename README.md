@@ -2,9 +2,10 @@
 
 Preparation checkpoint: the new COW and negotiated-read checks below are not
 yet published or bound for hosted execution. The bundled artifact lock still
-pins the historical 1.3.26 release; the signed COW fixture was locally joined
-against the exact 1.3.27 wheel. Rebind to the final combined 1.3.28 release and
-add its legacy raw-SHA case before the next hosted dispatch. No fresh Mac27
+pins the historical 1.3.26 release. The seven signed COW cases, including
+canonical raw SHA and both dirty rename paths, pass against combined 1.3.28
+source `354f8bebd55b1bd2f93d9b546d8913ec674c564c`. Rebind to the actual final
+1.3.28 artifacts before the next hosted dispatch. No fresh Mac27 or Mac28
 hosted result is claimed by this preparation commit.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
@@ -32,6 +33,13 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   partially overwrites it, verifies untouched bytes, shrinks and regrows it,
   fsyncs and checks both mounted readback and exact durable publication. The
   fixture confirms no source bytes were downloaded before this workload.
+  A separate canonical web-generated 9 MiB source retains its ordinary whole-
+  content SHA and `object_cas_v1` 4+4+1 MiB block layout. The installed mount
+  edits across the last block boundary, shrinks/regrows and renames it. Both
+  the classic dirty-file rename and this COW rename must publish exact bytes
+  and remove the old source from signed authoritative listing and lookup.
+  One canonical owned-service restart then verifies remounted bytes and old
+  source absence; it is not a forced crash or pending-write crash-recovery test.
 - Full compute uses the ordinary account and can read/write a personal canary.
 - An owner change to Workspace-only preserves workspace writes and loopback
   networking while denying outside read, write, stat and create.
@@ -65,7 +73,7 @@ No real account credentials are accepted or requested.
 
 ## Explicit limits
 
-This smaller kit still excludes large assets, 4 MiB staged uploads, app
+This smaller kit still excludes large streamed assets, 4 MiB staged uploads, app
 permission-change cleanup and command/app independence tests. Its finite SSE
 body checks exact chunk transport and content type, not progressive first-event
 timing or a long-lived event connection. Final Azure/WAN acceptance must cover
@@ -99,8 +107,12 @@ The local regression runs the released wheel's real signed transport and sync
 coordinator through this empty state and the first file publication/readback,
 then joins its actual mount backend and native journal to the cold tree edit.
 That local backend test creates no OS mount and makes no isolation claim; the
-hosted installed-service workload provides those separate facts. The cold base
-uses the current `sha256_tree_v1` identity, not every historical descriptor format.
+hosted installed-service workload provides those separate facts. Tree identity
+and canonical implicit/explicit raw SHA are separate cases. The generated raw
+fixture files and their exact producer provenance are included; the kit does
+not author an alternate storage descriptor. A local journal-reload test also
+reads held immutable bytes after a signed source deletion, without calling
+that library-level reload a real process crash.
 The only product implementation included is the already reviewed public
 distribution wheel, app and installer. No server, pod, source archive or
 internal contract tree is included.

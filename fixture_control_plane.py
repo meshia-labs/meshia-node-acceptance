@@ -61,6 +61,8 @@ ALLOWED_CAPABILITIES = frozenset(
         "gpu_family",
         "gpu_count",
         "app_protocol",
+        "cpu_model",
+        "gpu_model",
     }
 )
 CAPABILITY_VALUE_RE = re.compile(r"^[A-Za-z0-9 ._:+()-]+$")
