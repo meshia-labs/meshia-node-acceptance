@@ -22,7 +22,7 @@ import report
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.25-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.26-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
     def test_ca_progress_persists_exact_candidate_before_admission_failure(self):
@@ -139,9 +139,9 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.25')
-        self.assertEqual(lock['source_commit'], '7d2415f5e1e0f6b37c91f067d6aebac365d92ae5')
-        self.assertEqual(lock['package_commit'], '1960a1624e549ef62f43f7b26a031b6150d306a1')
+        self.assertEqual(manifest['version'], '1.3.26')
+        self.assertEqual(lock['source_commit'], '3d9580f3bd3cc838d1afcbb085115f2f879ac787')
+        self.assertEqual(lock['package_commit'], 'a3556eef135f268735887c4dec79b576bc06f6c0')
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
@@ -149,7 +149,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.25.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.26.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -173,7 +173,7 @@ class ReleaseBoundary(unittest.TestCase):
             target = Path(name) / 'artifacts'
             acceptance.fetch(target)
             context = acceptance.read_json(target / 'context.json')
-            self.assertEqual(context['source'], '7d2415f5e1e0f6b37c91f067d6aebac365d92ae5')
+            self.assertEqual(context['source'], '3d9580f3bd3cc838d1afcbb085115f2f879ac787')
             for file, digest in context['artifacts'].items():
                 self.assertEqual(hashlib.sha256((target / file).read_bytes()).hexdigest(), digest)
 
@@ -199,7 +199,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.25-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.26-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)

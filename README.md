@@ -1,10 +1,10 @@
-# Meshia Node 1.3.25 macOS acceptance prerelease
+# Meshia Node 1.3.26 macOS acceptance prerelease
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
-It tests the already published 1.3.25 artifacts without changing Meshia's public installer channel.
+It tests the already published 1.3.26 artifacts without changing Meshia's public installer channel.
 
-Package commit: `1960a1624e549ef62f43f7b26a031b6150d306a1`; clean source:
-`7d2415f5e1e0f6b37c91f067d6aebac365d92ae5`. The `release-lock.json` binds
+Package commit: `a3556eef135f268735887c4dec79b576bc06f6c0`; clean source:
+`3d9580f3bd3cc838d1afcbb085115f2f879ac787`. The `release-lock.json` binds
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -103,7 +103,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.25 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.26 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -112,8 +112,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.25-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.25-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.26-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.26-acceptance.1`
    For an authorized focused diagnosis on a fresh reviewed tag, add
    `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
