@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "3c626a0c95bf05952f88b74466b7e7cd048a1d6e50759670650d9bcbecc38365"
+LOCK_SHA256 = "PENDING_FINAL_1_3_18_NOTARIZED_ARTIFACTS"
 LABEL = "io.meshia.node"
 
 PUBLIC_KEYS = ("pid", "native_host_pid", "package_version", "live", "runtime_ready",
@@ -73,10 +73,11 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.17.sh').read_text()
+    script = (ROOT / 'release/install-1.3.18.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
-    known = [text for text in dict.fromkeys(fixed) if text in output]
+    known = sorted((text for text in dict.fromkeys(fixed) if text in output),
+                   key=output.rfind)
     types = [name for name in ('ModuleNotFoundError', 'ImportError', 'FileNotFoundError',
               'PermissionError', 'ConnectionError', 'TimeoutError', 'SSLCertVerificationError')
              if re.search(r'\b' + name + ':', output)]
@@ -135,6 +136,8 @@ def write_json(path, value):
 
 def verify_release(root=None):
     """Read-only verification; no checkout history, credentials or network."""
+    require(re.fullmatch(r'[a-f0-9]{64}', LOCK_SHA256) is not None,
+            "Final notarized artifact identities are not bound")
     root = ROOT if root is None else Path(root)
     lock_path = root / "release-lock.json"
     require(lock_path.is_file() and not lock_path.is_symlink(), "Release lock must be a regular file")
@@ -151,9 +154,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.17-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.17.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.17", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.18-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.18.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.18", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -308,21 +311,23 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.17.sh').read_text()
+    source = (ROOT / 'release/install-1.3.18.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
-    libraries = ('/usr/local/lib', '/opt/homebrew/lib')
+    libraries = (('/usr/local/lib', 'libfuse-t.dylib'),
+                 ('/opt/homebrew/lib', 'libfuse-t.dylib'),
+                 ('/Library/Application Support/fuse-t/lib', 'libfuse-t-1.2.7.dylib'))
     helper = '/Library/Application Support/fuse-t/bin'
     checks = []
-    for index, library in enumerate(libraries):
+    for index, (library, entry) in enumerate(libraries):
         paths = ((str(Path(library).parent), 'Directory'), (library, 'Directory'),
-                 (library + '/libfuse-t.dylib', 'Symbolic Link'),
+                 (library + '/' + entry, 'Symbolic Link' if entry == 'libfuse-t.dylib' else 'Regular File'),
                  (library + '/libfuse-t-1.2.7.dylib', 'Regular File'))
         for suffix, (path, kind) in enumerate(paths):
             checks.append((f'library_{index}_path_{suffix}', 'fuse_t_path_is_safe', path, kind))
         checks.append((f'library_{index}_signature', 'fuse_t_signed_by_pinned_team',
                        library + '/libfuse-t-1.2.7.dylib', 'libfuse-t-1'))
-        checks.append((f'library_{index}_complete', 'fuse_t_candidate_is_compatible', library, helper))
+        checks.append((f'library_{index}_complete', 'fuse_t_candidate_is_compatible', library, helper, entry))
     for index, (path, kind) in enumerate(((str(Path(helper).parent.parent), 'Directory'),
             (str(Path(helper).parent), 'Directory'), (helper, 'Directory'),
             (helper + '/go-nfsv4', 'Symbolic Link'), (helper + '/go-nfsv4-1.2.7', 'Regular File'))):

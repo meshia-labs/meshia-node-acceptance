@@ -20,7 +20,7 @@ import report
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.17-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.18-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
     def test_disabled_or_changed_gatekeeper_policy_cannot_pass_assessment(self):
@@ -38,9 +38,9 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.17')
-        self.assertEqual(lock['source_commit'], '119499e1824ffc02d187ef8589cbe51f6c72e9ee')
-        self.assertEqual(lock['package_commit'], '9155ff76167e18757d667cbee987fb955444881e')
+        self.assertEqual(manifest['version'], '1.3.18')
+        self.assertEqual(lock['source_commit'], 'PENDING_FINAL_SOURCE_COMMIT')
+        self.assertEqual(lock['package_commit'], 'PENDING_FINAL_PACKAGE_COMMIT')
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
@@ -48,7 +48,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.17.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.18.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -72,7 +72,7 @@ class ReleaseBoundary(unittest.TestCase):
             target = Path(name) / 'artifacts'
             acceptance.fetch(target)
             context = acceptance.read_json(target / 'context.json')
-            self.assertEqual(context['source'], '119499e1824ffc02d187ef8589cbe51f6c72e9ee')
+            self.assertEqual(context['source'], 'PENDING_FINAL_SOURCE_COMMIT')
             for file, digest in context['artifacts'].items():
                 self.assertEqual(hashlib.sha256((target / file).read_bytes()).hexdigest(), digest)
 
@@ -98,7 +98,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.17-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.18-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)
@@ -152,7 +152,7 @@ class ReleaseBoundary(unittest.TestCase):
         with patch.object(acceptance.subprocess, 'run',
                 return_value=subprocess.CompletedProcess([], 1)) as execute:
             value = acceptance.fuse_prerequisite_projection()
-        self.assertEqual(len(value), 19)
+        self.assertEqual(len(value), 25)
         self.assertFalse(any(check['passed'] for check in value))
         for call in execute.call_args_list:
             argv = call.args[0]
@@ -168,6 +168,18 @@ class ReleaseBoundary(unittest.TestCase):
             ('private-sentinel ' + reason + '\nprivate-sentinel').encode())
         self.assertIn(reason, value['known_errors'])
         self.assertNotIn('private-sentinel', json.dumps(value))
+
+    def test_installer_diagnostics_keep_last_observed_failure_in_execution_order(self):
+        reason = 'Meshia is connected, but its background service has not verified access to the mounted workspace.'
+        phases = ['Preparing the kext-less Meshia filesystem runtime',
+            'Installing the kext-less filesystem runtime (one-time administrator approval)',
+            'Meshia itself remains a script-installed user service',
+            'skipping the native Meshia.app as requested', 'state directory ready (0700, no sudo used)',
+            'Preparing the managed Python toolchain', 'Resolving the meshia-node release',
+            'Installing and verifying the Meshia background service', reason]
+        value = acceptance.subprocess_diagnostics(['bash'], 1, b'', '\n'.join(phases).encode())
+        self.assertEqual(len(value['known_errors']), 8)
+        self.assertEqual(value['known_errors'][-1], reason)
 
 class FixtureAuthority(unittest.TestCase):
     def test_real_release_client_enrollment_signature_and_revocation(self):

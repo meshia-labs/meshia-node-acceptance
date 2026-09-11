@@ -1,11 +1,11 @@
-# Meshia Node 1.3.17 macOS acceptance prerelease
+# Meshia Node 1.3.18 macOS acceptance prerelease
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It does not change Meshia's current public installer channel (1.3.14).
 
-The kit contains the exact reviewed release files from package commit
-`9155ff76167e18757d667cbee987fb955444881e`, built from clean source
-`119499e1824ffc02d187ef8589cbe51f6c72e9ee`. `release-lock.json` binds
+This local preparation is blocked until the final notarized artifacts arrive.
+Package commit: `PENDING_FINAL_PACKAGE_COMMIT`; clean source:
+`PENDING_FINAL_SOURCE_COMMIT`. The final `release-lock.json` will bind
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -81,25 +81,25 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.17 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.18 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
-   remains unchanged. Proposed destination: `meshia-labs/meshia-node-acceptance`.
-   Read-only preflight found that name unused and the release operator has
-   organization admin membership. The repository has not been created.
+   remains unchanged. Use the existing public repository
+   `meshia-labs/meshia-node-acceptance`. Bind the final source/package commits
+   and all four artifact hashes before publishing; the preparation guard rejects
+   unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.17-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.17-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.18-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.18-acceptance.1`
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`
    in parallel with `fail-fast: false`, `contents: read`,
    pinned checkout/setup actions, no repository secrets, no input-supplied URLs
    or executable commands, and a 15-minute limit for each job.
-4. Read job admission before considering another attempt. Public standard-runner
-   minutes are free under GitHub's documented policy, but admission during the
-   owner's current billing restriction has not been demonstrated. A billing
+4. Read job admission before considering another attempt. Both public standard
+   runners were admitted for the three earlier 1.3.17 runs. A billing
    refusal with zero steps is not an acceptance result; do not retry blindly or
    change billing as part of this workflow.
 5. Require the native test and the always-run cleanup step to pass. Preserve the
@@ -110,8 +110,12 @@ Do not spoof the GitHub runner environment on a personal Mac.
 Installer failures expose only fixed literal messages found in the pinned
 installer, exit status and byte counts, known exception classes, file-existence
 flags and bounded fixture error codes. Captured output and runtime config are
-never published. The first hosted run failed and cleaned up on both runners;
-that result remains historical evidence, not a native acceptance pass.
+never published. Earlier 1.3.17 runs
+[34547438869](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34547438869),
+[34548844065](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34548844065), and
+[34549927120](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34549927120)
+failed and cleaned up on both runners. Their tagged source, artifacts and
+results remain historical evidence, not native acceptance passes.
 
 Dependency downloads use the wheel's pinned Python requirements and the
 canonical installer's verified runtime prerequisites. They do not provision
