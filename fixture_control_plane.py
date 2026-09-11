@@ -1513,12 +1513,12 @@ class FakeControlPlane:
                 results.append({"command_id": command_id, "status": "rejected", "http_status": error.status, "code": error.code})
         return 200, {"completions": results}
 
-    def claim(self, host: Host) -> tuple[int, dict[str, Any] | None]:
+    def claim(self, host: Host, *, app_lane: bool = False) -> tuple[int, dict[str, Any] | None]:
         attachment = next((item for item in self.attachments.values()
             if item.get("host_id") == host.id and item.get("host_generation") == host.generation
             and item.get("session_id") == host.session_id and item.get("status") == "active"), None)
         for command in self.commands:
-            if command.status == "queued":
+            if command.status == "queued" and (command.command_type in ("app_control", "app_http")) == app_lane:
                 command.status = "claimed"
                 command.claim_token = str(uuid.uuid4())
                 return 200, {

@@ -5,6 +5,8 @@ lifecycle proofs need production's unique active host/session attachment and
 owner-controlled permissions, including across installer upgrades (M445/M1841).
 """
 from typing import Any
+from datetime import datetime, timezone
+import uuid
 from fixture_v2 import FabricV2Fixture
 
 from fixture_control_plane import (
@@ -129,6 +131,62 @@ class AcceptancePlane(FabricV2Fixture, NativeAcceptancePlane):
         self.access_mode = "full"
         self.completions: dict[str, dict[str, Any]] = {}
         self.cancelled: set[str] = set()
+        self.app_access_revision = 1
+        self.app_grants: dict[str, dict[str, Any]] = {}
+
+    def select_access_mode(self, mode: str) -> None:
+        previous = self.access_mode
+        super().select_access_mode(mode)
+        if mode != previous:
+            self.app_access_revision += 1
+
+    def claim_apps(self, host: Host, payload: dict[str, Any]):
+        """The remote grant is a fixture; installed native ownership is not."""
+        with self._state_lock:
+            attachment = next((item for item in self.attachments.values()
+                if item.get('host_id') == host.id and item.get('host_generation') == host.generation
+                and item.get('session_id') == host.session_id and item.get('status') == 'active'), None)
+            allowed = host.status == 'connected' and attachment is not None and self.access_mode in ('full', 'limited')
+            common = {'host_generation': host.generation,
+                      'attachment_id': attachment['id'] if attachment else None,
+                      'attachment_connection_generation': 1, 'access_revision': self.app_access_revision}
+            supervision = []
+            active_fields = {'session_id', 'attachment_id', 'attachment_connection_generation',
+                             'access_revision', 'app_id', 'instance_id'}
+            for active in payload.get('active_apps', []):
+                if (not isinstance(active, dict) or set(active) != active_fields
+                        or not isinstance(active.get('app_id'), str) or not 1 <= len(active['app_id']) <= 64):
+                    raise Rejected(400, 'APP_SUPERVISION_INVALID')
+                grant = self.app_grants.get(active['app_id'])
+                exact = bool(allowed and grant and grant['host_id'] == host.id
+                    and grant['deadline'] > self.now() and grant['mode'] == self.access_mode
+                    and grant['common'] == common and active['session_id'] == host.session_id
+                    and all(active[key] == common[key] for key in active_fields & common.keys())
+                    and isinstance(active['instance_id'], str))
+                try:
+                    exact = exact and str(uuid.UUID(active['instance_id'])) == active['instance_id']
+                except (ValueError, TypeError, AttributeError):
+                    exact = False
+                if exact and grant['instance_id'] is None:
+                    grant['instance_id'] = active['instance_id']
+                exact = exact and active['instance_id'] == grant['instance_id']
+                supervision.append({**active, 'continue': bool(exact),
+                                    **({'supervision_seconds': 15} if exact else {})})
+            commands = []
+            if allowed:
+                _, claimed = FakeControlPlane.claim(self, host, app_lane=True)
+                if claimed is not None:
+                    command = claimed['command']
+                    command.update(common, execution_scope='host' if self.access_mode == 'full' else 'workspace',
+                        expires_at=datetime.fromtimestamp(self.now() + 30, timezone.utc).isoformat())
+                    command['payload'] = {**command['payload'], **common,
+                        'schema': 'meshia.connected_host_' + command['command_type'] + '.v1'}
+                    if command['command_type'] == 'app_control' and command['payload'].get('operation') == 'register_lab_app':
+                        name = command['payload']['arguments']['app_id']
+                        self.app_grants[name] = {'host_id': host.id, 'common': common, 'mode': self.access_mode,
+                                                'deadline': self.now() + 90, 'instance_id': None}
+                    commands.append(command)
+            return 200, {'commands': commands, 'app_supervision': supervision}
 
     def claim(self, host: Host):
         status, document = super().claim(host)
@@ -150,6 +208,13 @@ class AcceptancePlane(FabricV2Fixture, NativeAcceptancePlane):
             **({"supervision_seconds": 15} if allowed else {})}}
 
     def complete(self, host: Host, command_id: str, payload: dict[str, Any]):
-        result = super().complete(host, command_id, payload)
-        self.completions[command_id] = payload
-        return result
+        with self._state_lock:
+            result = super().complete(host, command_id, payload)
+            self.completions[command_id] = payload
+            command = self.completed[command_id]
+            if command.command_type == 'app_control':
+                operation = command.payload.get('operation')
+                if ((operation == 'unregister_lab_app' and payload.get('status') == 'succeeded')
+                        or (operation == 'register_lab_app' and payload.get('status') != 'succeeded')):
+                    self.app_grants.pop(command.payload.get('arguments', {}).get('app_id'), None)
+            return result

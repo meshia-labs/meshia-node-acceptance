@@ -8,6 +8,9 @@ import sys
 SAFE_KEYS = set('passed source_commit artifacts run_id scope production_account_tested customer_privacy_prompt_ux_tested artifact_transport deployed_https_delivery_tested native_apps_tested development_host_override loopback_control_transport steps name uid os architecture gui_domain image sip gatekeeper installed_modules empty_head native_host_owned native_host_pid runner_pid mounts path type ordinary_uid outside_read_write read write stat create cpus runtime workspace_read_write networking pid stale_pid_safe_identity completion_status cancellation_seconds command_timeout_seconds cancellation_before_natural_exit last_runtime live runtime_ready runtime_readiness_reason command_safe command_safety_reason sync_converged sync_convergence_reason fabric_head_generation package_version last_command status error_code exit_code failure phase error_type cleanup required service_registered service_definition_exists mounts_remaining owned_processes_gone errors action'.split())
 SAFE_KEYS.update(('codesign_verified', 'notarization_ticket_valid', 'gatekeeper_accepted'))
 SAFE_KEYS.update(('stores', 'ca_certificates'))
+SAFE_KEYS.update(('native_app_progress', 'native_app_failure', 'mode', 'http', 'sse_body',
+                 'sse_progressive_timing_tested', 'response_bytes', 'response_sha256',
+                 'websocket_binary', 'outside_access', 'owned_process_stopped'))
 SAFE_KEYS.update(('public_ca_stores', 'output_valid', 'output_bytes', 'native_startup_failed',
                   'native_host_verification_failed', 'workspace_boundary_start_failed',
                   'timed_out', 'truncated', 'elapsed_seconds', 'errno', 'ca_probe_completed'))

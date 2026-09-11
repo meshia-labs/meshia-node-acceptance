@@ -559,6 +559,37 @@ def acceptance(directory):
                 "Native queued command failed")
         return json.loads(base64.b64decode(value["result"]["output_base64"]))
 
+    def native_app(mode):
+        from app_acceptance import app_error_code, exercise_app
+        with zipfile.ZipFile(directory / manifest['package']) as archive:
+            codes = set()
+            for module in ('native_apps', 'native_app_http', 'native_app_websocket', 'app_process'):
+                codes.update(re.findall(r'\bAPP_[A-Z_]+\b', archive.read('meshia_node/' + module + '.py').decode()))
+        state = {'mode': mode}
+        def progress(**facts):
+            state.update(facts)
+            receipt['native_app_progress'] = dict(state)
+            if facts.get('status') == 'failed':
+                receipt.setdefault('native_app_failure', dict(state))
+            write_json(directory / 'receipt.json', receipt)
+        def submit(kind, payload):
+            command_id = plane.enqueue(kind, payload)
+            timeout = 15 if payload['operation'] in ('close', 'ws_close', 'unregister_lab_app') else 35
+            result = wait('native app command completion', lambda: plane.completions.get(command_id), timeout)
+            if result.get('status') != 'succeeded':
+                failure = {**state, 'status': 'failed', 'error_code': app_error_code(result.get('error_code'), codes)}
+                receipt.setdefault('native_app_failure', failure)
+                write_json(directory / 'receipt.json', receipt)
+                raise AssertionError('Native app request failed')
+            return result['result']
+        facts = exercise_app(submit, python, private, mode, remember=remember,
+                             gone=lambda identity: kernel.identity(identity.pid) != identity,
+                             uid=os.getuid(), progress=progress)
+        wait('native app workspace publication',
+             lambda: plane.fabric_files.get('mac-app-' + mode + '.txt') == ('app-compute-' + mode).encode(), 30)
+        require(private.read_text() == 'full', 'Native app changed the personal canary')
+        record(mode + '_native_app', **facts, owned_process_stopped=True)
+
     def expired(_signum, _frame):
         raise TimeoutError("Mac acceptance reached its ten-minute test deadline")
 
@@ -633,6 +664,8 @@ def acceptance(directory):
             "print(json.dumps({'uid':os.getuid(),'cwd':os.getcwd()}))", private))
         require(full["uid"] == os.getuid() and private.read_text() == "full", "Full did not use ordinary account")
         record("full_native_outside_workspace", ordinary_uid=True, outside_read_write=True)
+        phase = "full_native_app"
+        native_app('full')
         phase = "limited_command"
         plane.select_access_mode("limited")
         wait("owner permission downgrade", lambda: json.loads(run([python, "-I", "-c",
@@ -662,6 +695,9 @@ print(json.dumps(checks))
                 "Workspace-only native boundary failed")
         wait("limited publication", lambda: plane.fabric_files.get("mac-limited.txt") == b"computed", 90)
         record("limited_native_compute", **limited, workspace_read_write=True, networking=True)
+        phase = "limited_native_app"
+        native_app('limited')
+        receipt['native_apps_tested'] = True
         phase = "limited_public_ca_store"
         def ca_progress(stores):
             receipt['public_ca_stores'] = stores

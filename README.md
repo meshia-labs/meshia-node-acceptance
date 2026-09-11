@@ -24,6 +24,14 @@ Apple developer login, cloud provider, or Meshia backend is needed.
 - Full compute uses the ordinary account and can read/write a personal canary.
 - An owner change to Workspace-only preserves workspace writes and loopback
   networking while denying outside read, write, stat and create.
+- In each Full and Workspace-only mode, the installed service receives signed
+  app commands, reserves a port and launches a real app through its unchanged
+  `NativeApps` and `AppProcessOwner`. The same owned port serves HTTP, a finite
+  SSE body spanning multiple response chunks, and exact binary WebSocket echo.
+  Each app writes its mounted workspace; Full permits the disposable personal
+  canary and Workspace-only denies its read, write and stat. Unregister must
+  close the app port and its remembered kernel process identity. No native
+  launcher, coalition, socket ownership or policy check is replaced by a fixture.
 - The actual managed interpreter loads a nonempty default public CA store
   through the signed Workspace-only command lane. Already installed Homebrew
   Python 3.14 interpreters receive the same check; absent interpreters are
@@ -41,9 +49,11 @@ No real account credentials are accepted or requested.
 
 ## Explicit limits
 
-This smaller kit excludes the canonical helper's app HTTP/SSE/WebSocket,
-large asset, 4 MiB staged upload, app permission-change cleanup and command/app
-independence tests. Final Azure/WAN acceptance must cover those separately.
+This smaller kit still excludes large assets, 4 MiB staged uploads, app
+permission-change cleanup and command/app independence tests. Its finite SSE
+body checks exact chunk transport and content type, not progressive first-event
+timing or a long-lived event connection. Final Azure/WAN acceptance must cover
+those separately. Mac app checks do not prove Linux or Windows app ownership.
 It does not prove production sign-in, account revocation, browser app origins,
 WAN transport, managed CPU/GPU readiness, or customer privacy-prompt UX.
 It verifies immutable bundled artifact delivery over a local HTTP fixture,
@@ -56,7 +66,11 @@ fails the job rather than skipping the check.
 
 The canonical protocol fixture retains its string-dispatched current routes
 and their validators. Twelve unreachable setup/test helpers were removed;
-the Linux OS acceptance runner and app-stream test implementations are absent.
+the Linux OS acceptance runner is absent. The small app fixture grants only
+the enrolled attachment's current Full/Workspace-only revision, binds the first
+reported instance, and expires supervision after 90 seconds. The app also has
+an independent 90-second exit timer. Ordinary commands cannot consume app
+claims. Both lanes retain signed request validation and completion receipts.
 The standalone v2 fixture adds authenticated empty snapshots, journal changes,
 file lookup, verified block reads and the bounded put/delete operations used
 here. It validates attachment/generation, object bytes, per-path predecessors
@@ -78,8 +92,10 @@ PYTHONDONTWRITEBYTECODE=1 python acceptance.py verify --directory /tmp/unused
 PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_kit
 ```
 
-These commands check hashes, fixture authority, output filtering and cleanup
-fences only. Native installation is gated to the fresh hosted `runner` account.
+These commands check hashes, fixture authority, output filtering, cleanup
+fences and the disposable app server's HTTP/WebSocket bytes. Local driver tests
+use simulated completions and do not prove native ownership or Limited policy.
+Native installation is gated to the fresh hosted `runner` account.
 Do not spoof the GitHub runner environment on a personal Mac.
 
 ## Publication and run plan

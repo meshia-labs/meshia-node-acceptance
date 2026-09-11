@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+import socket
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ import uuid
 from unittest.mock import patch
 
 import acceptance
+import app_acceptance
 import report
 
 # Import the verified distribution, never private checkout source.
@@ -281,6 +283,59 @@ class ReleaseBoundary(unittest.TestCase):
         self.assertEqual(value['known_errors'][-1], reason)
 
 class FixtureAuthority(unittest.TestCase):
+    def test_signed_app_lane_preserves_native_fence_and_separate_command_claim(self):
+        from fixture_plane import AcceptancePlane
+        from fixture_control_plane import NATIVE_WORKSPACE_PROFILE
+        from meshia_node.client import SignedClient
+        from meshia_node.config import ConfigStore, Paths
+        from meshia_node.enroll import enroll
+        from meshia_node.identity import DeviceIdentity
+        from meshia_node.native_apps import AppFence
+        plane = AcceptancePlane(); plane.start()
+        try:
+            with tempfile.TemporaryDirectory() as name:
+                paths = Paths(Path(name) / 'node')
+                config = enroll(paths=paths, api_url=plane.origin, pairing_code=plane.mint_pairing_code(),
+                                access='files', workspace=Path(name) / 'workspace')
+                client = SignedClient(ConfigStore(paths), DeviceIdentity.load_or_create(paths.identity_dir))
+                base = f'/api/connected-hosts/{config.host_id}'
+                client.post_json(base + '/attach', {'session_id': config.session_id,
+                    'mount_name': 'workspace', 'permissions': dict(NATIVE_WORKSPACE_PROFILE)})
+                app_id = plane.enqueue('app_control', {'operation': 'register_lab_app',
+                    'arguments': {'app_id': 'fixture-app'}})
+                exec_id = plane.enqueue('exec', {'argv': ['true']})
+                self.assertEqual(client.post_json(base + '/commands/claim', {})['command']['id'], exec_id)
+                body = {'workspace_commands': True, 'native_execution': True, 'app_commands': True,
+                        'app_protocol': 'http-stream-v1', 'active_apps': []}
+                claimed = client.post_json(base + '/commands/claim', body)['commands'][0]
+                self.assertEqual(claimed['id'], app_id)
+                fence = AppFence.from_command(claimed, config)
+                self.assertEqual(fence.access_mode, 'full')
+                active = fence.active('fixture-app', str(uuid.uuid4()))
+                body['active_apps'] = [active]
+                result = client.post_json(base + '/commands/claim', body)
+                self.assertTrue(result['app_supervision'][0]['continue'])
+                for field, value in (('instance_id', str(uuid.uuid4())), ('session_id', str(uuid.uuid4())),
+                                     ('attachment_id', str(uuid.uuid4())), ('access_revision', 9)):
+                    with self.subTest(field=field):
+                        changed = {**body, 'active_apps': [{**active, field: value}]}
+                        self.assertFalse(client.post_json(base + '/commands/claim', changed)['app_supervision'][0]['continue'])
+                completion = {'command_id': app_id, 'claim_token': claimed['claim_token'],
+                              'status': 'succeeded', 'result': {}, 'error_code': None}
+                result = client.post_json(base + '/commands/complete-app-batch', {'completions': [completion]})
+                self.assertEqual(result['completions'][0]['status'], 'acknowledged')
+                self.assertIn(app_id, plane.completions)
+                plane.app_grants['fixture-app']['deadline'] = plane.now() - 1
+                self.assertFalse(client.post_json(base + '/commands/claim', body)['app_supervision'][0]['continue'])
+                plane.select_access_mode('limited')
+                self.assertFalse(client.post_json(base + '/commands/claim', body)['app_supervision'][0]['continue'])
+                plane.enqueue('app_control', {'operation': 'reserve_lab_app_port', 'arguments': {'app_id': 'limited-app'}})
+                limited = client.post_json(base + '/commands/claim', {**body, 'active_apps': []})['commands'][0]
+                self.assertEqual(AppFence.from_command(limited, config).access_mode, 'limited')
+                self.assertEqual(limited['execution_scope'], 'workspace')
+        finally:
+            plane.stop()
+
     def test_real_release_client_enrollment_signature_and_revocation(self):
         from fixture_plane import AcceptancePlane
         from meshia_node.client import SignedClient
@@ -429,6 +484,111 @@ class FixtureAuthority(unittest.TestCase):
         plane.revoke(host)
         self.assertEqual(host.status, 'revoked')
         self.assertEqual(host.generation, 2)
+
+class AppFixture(unittest.TestCase):
+    def test_fixture_server_same_port_http_sse_and_websocket_without_native_claim(self):
+        # This proves fixture bytes and the already-installed websockets API,
+        # not native ownership or Limited isolation. Hosted acceptance must
+        # launch the same code through the installed daemon's signed queue.
+        from websockets.sync.client import connect
+        with tempfile.TemporaryDirectory() as name, socket.socket() as reservation:
+            root = Path(name); workspace = root / 'workspace'; workspace.mkdir()
+            personal = root / 'personal'; personal.write_text('full')
+            reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
+            reservation.close()
+            process = subprocess.Popen([sys.executable, '-I', '-u', '-c', app_acceptance.APP_SOURCE,
+                'full', str(personal)], cwd=workspace, env={**os.environ, 'PORT': str(port)},
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                def ready():
+                    self.assertIsNone(process.poll(), 'Fixture server exited')
+                    try:
+                        with urllib.request.urlopen(f'http://127.0.0.1:{port}/http', timeout=1) as response:
+                            return json.load(response)
+                    except OSError:
+                        return None
+                data = acceptance.wait('fixture HTTP', ready, 5)
+                self.assertEqual(data['pid'], process.pid)
+                self.assertEqual(data['uid'], os.getuid())
+                self.assertTrue(all(data[key] == 'allowed' for key in ('read', 'write', 'stat')))
+                with urllib.request.urlopen(f'http://127.0.0.1:{port}/sse', timeout=2) as response:
+                    self.assertEqual(response.headers['Content-Type'], 'text/event-stream')
+                    self.assertEqual(response.read(), app_acceptance.SSE_BODY)
+                with connect(f'ws://127.0.0.1:{port}/ws', open_timeout=2, close_timeout=1) as connection:
+                    connection.send(app_acceptance.WS_BODY)
+                    self.assertEqual(connection.recv(timeout=2), app_acceptance.WS_BODY)
+                self.assertEqual((workspace / 'mac-app-full.txt').read_text(), 'app-compute-full')
+                self.assertEqual(personal.read_text(), 'full')
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait(timeout=3)
+
+    def test_driver_uses_typed_lane_closes_streams_and_never_promotes_failed_cleanup(self):
+        for fail in (None, 'register', 'http', 'websocket', 'cleanup'):
+            with self.subTest(fail=fail), socket.socket() as reservation:
+                reservation.bind(('127.0.0.1', 0))
+                calls, states, reads = [], [], {}
+                def submit(kind, payload):
+                    operation = payload['operation']; calls.append((kind, dict(payload)))
+                    if operation == 'reserve_lab_app_port':
+                        return {'lease': {'port': reservation.getsockname()[1]}}
+                    if operation == 'register_lab_app':
+                        if fail == 'register': raise AssertionError('fixture register')
+                        self.assertEqual(payload['arguments']['launch_argv'][1:4], ['-I', '-u', '-c'])
+                        self.assertEqual(payload['arguments']['cwd'], '.')
+                        return {'app': {'instance_id': str(uuid.uuid4()), 'status': 'ready',
+                                        'port': reservation.getsockname()[1]}}
+                    if operation == 'unregister_lab_app':
+                        return {'cleanup': {'owned_process_stopped': fail != 'cleanup'}}
+                    if operation == 'open':
+                        if fail == 'http': raise AssertionError('fixture HTTP')
+                        body = (json.dumps({'uid': os.getuid(), 'pid': 123, 'read': 'denied',
+                                            'write': 'denied', 'stat': 'denied'}).encode()
+                                if payload['path'] == '/http' else app_acceptance.SSE_BODY)
+                        reads[payload['stream_id']] = body[262144:]
+                        return {'status': 200, 'headers': {'content-type': 'text/event-stream'},
+                                'body_base64': base64.b64encode(body[:262144]).decode(),
+                                'eof': len(body) <= 262144, 'next_sequence': 1}
+                    if operation == 'read':
+                        return {'offset': 262144, 'body_base64': base64.b64encode(reads[payload['stream_id']]).decode(),
+                                'eof': True, 'next_sequence': 2}
+                    if operation == 'ws_open' and fail == 'websocket':
+                        raise AssertionError('fixture WS')
+                    if operation == 'ws_read':
+                        return {'message_type': 'binary', 'body_base64': base64.b64encode(app_acceptance.WS_BODY).decode(),
+                                'next_sequence': 1, 'end_of_message': True}
+                    return {}
+                def run():
+                    return app_acceptance.exercise_app(submit, Path('/fixture/python'), Path('/fixture/personal'),
+                        'limited', remember=lambda pid: pid, gone=lambda identity: True,
+                        uid=os.getuid(), progress=lambda **state: states.append(state))
+                if fail is None:
+                    result = run()
+                    self.assertTrue(result['http'] and result['sse_body'] and result['websocket_binary'])
+                    self.assertFalse(result['sse_progressive_timing_tested'])
+                    self.assertEqual(result['outside_access'], 'denied')
+                else:
+                    with self.assertRaises(AssertionError): run()
+                self.assertEqual(calls[-1][1]['operation'], 'unregister_lab_app')
+                self.assertEqual(sum(p['operation'] == 'unregister_lab_app' for _, p in calls), 1)
+                self.assertTrue(all(kind in ('app_control', 'app_http') for kind, _ in calls))
+                self.assertEqual(states[-1]['owned_process_stopped'], fail != 'cleanup')
+                if fail == 'http': self.assertTrue(any(p['operation'] == 'close' for _, p in calls))
+                if fail == 'websocket': self.assertTrue(any(p['operation'] == 'ws_close' for _, p in calls))
+                if fail in ('register', 'http', 'websocket'):
+                    self.assertTrue(any(state['phase'] == fail and state['status'] == 'failed' for state in states))
+
+    def test_app_failure_receipt_accepts_only_public_fixed_error_code(self):
+        allowed = {'APP_START_TIMEOUT', 'APP_HTTP_UNAVAILABLE'}
+        for value in ('APP_START_TIMEOUT', 'private-sentinel', None, {'token': 'private-sentinel'}):
+            code = app_acceptance.app_error_code(value, allowed)
+            public = report.public({'native_app_failure': {'mode': 'full', 'phase': 'http',
+                'status': 'failed', 'error_code': code, 'output': 'private-sentinel', 'claim_token': 'private-sentinel'}})
+            self.assertNotIn('private-sentinel', json.dumps(public))
+            self.assertEqual(code, value if value == 'APP_START_TIMEOUT' else 'unclassified')
 
 if __name__ == '__main__':
     unittest.main()
