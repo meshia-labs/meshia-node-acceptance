@@ -139,7 +139,7 @@ class ReleaseBoundary(unittest.TestCase):
         lock, manifest = acceptance.verify_release()
         self.assertEqual(manifest['version'], '1.3.20')
         self.assertEqual(lock['source_commit'], 'f222af98c5bc50d4e1f2678c96e44e1b11afed9c')
-        self.assertEqual(lock['package_commit'], 'PENDING_FINAL_PACKAGE_COMMIT')
+        self.assertEqual(lock['package_commit'], '8273344d331e427ed9316b0728221667bcac8e19')
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
