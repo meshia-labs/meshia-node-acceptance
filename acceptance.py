@@ -173,10 +173,12 @@ def subprocess_diagnostics(argv, returncode, stdout, stderr):
     script = (ROOT / 'release/install-1.3.29.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
+    from cow_acceptance import PROBE_FAILURE_MARKERS
+    fixed.extend(PROBE_FAILURE_MARKERS)
     known = sorted((text for text in dict.fromkeys(fixed) if text in output),
                    key=output.rfind)
     types = [name for name in ('ModuleNotFoundError', 'ImportError', 'FileNotFoundError',
-              'PermissionError', 'ConnectionError', 'TimeoutError', 'SSLCertVerificationError')
+              'PermissionError', 'ConnectionError', 'TimeoutError', 'SSLCertVerificationError', 'AssertionError')
              if re.search(r'\b' + name + ':', output)]
     return {'program': Path(str(argv[0])).name, 'exit_code': returncode,
             'stdout_bytes': len(stdout), 'stderr_bytes': len(stderr),
@@ -734,39 +736,74 @@ def acceptance(directory):
                               'mounted_readback': True, 'fsync': True}, 'Mounted recreation result changed')
         record('native_classic_dirty_rename_recreate', **recreated,
                **durable_recreated_source('mac-mounted-renamed.txt', 'mac-mounted-recreate-renamed.txt'))
-        phase = "mounted_cold_cow"
+        phase = "mounted_tree_cow_namespace"
         import cow_acceptance
         seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
+        receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes']}
         # Observe namespace publication without warming the seeded file bytes.
         def cold_namespace_ready(sequence):
             value = ready()
             return (value is not None and value.get("service", {}).get("runtime", {})
                     .get("fabric_head_generation", -1) >= sequence)
         wait("cold file namespace", lambda: cold_namespace_ready(seed["entry_seq"]), 45)
-        require(plane.cow_source_read_bytes[seed["content_sha256"]] == 0,
-                "Cold acceptance source was already downloaded")
+        before_reads = plane.cow_source_read_bytes[seed["content_sha256"]]
+        receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes'], 'source_read_bytes_before': before_reads}
+        phase = 'mounted_tree_cow_mutation'
         cow = json.loads(run([python, "-I", "-c", cow_acceptance.PROBE, workspace / cow_acceptance.PATH]))
         require(cow_acceptance.validate(cow), "Mounted COW result changed")
+        phase = 'mounted_tree_cow_publication'
         wait("mounted COW publication", lambda: plane.fabric_files.get(cow_acceptance.PATH)
              == cow_acceptance.expected_bytes(), 90)
-        record("native_mount_cold_cow", **cow, durable_publication=True,
+        record("native_mount_tree_cow", **cow, durable_publication=True,
                source_size_bytes=seed["size_bytes"], source_digest=seed["digest"],
-               cold_source_initially_uncached=True,
+               cold_read_tested=False, source_read_bytes_before=before_reads,
                source_read_bytes=plane.cow_source_read_bytes[seed["content_sha256"]])
-        phase = "mounted_raw_cow"
+        phase = 'mounted_sparse_cow_namespace'
+        sparse = plane.seed_cold_file(cow_acceptance.SPARSE_PATH, cow_acceptance.SPARSE_PREFIX,
+                                     logical_size=cow_acceptance.SPARSE_SIZE)
+        receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
+                                    'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX)}
+        wait('large sparse source namespace', lambda: cold_namespace_ready(sparse['entry_seq']), 45)
+        phase = 'mounted_sparse_cow_cold_precondition'
+        before_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+        receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
+            'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX), 'source_read_bytes_before': before_reads}
+        require(before_reads == 0, 'Large sparse source was already downloaded')
+        phase = 'mounted_sparse_cow_mutation'
+        changed = json.loads(run([python, '-I', '-c', cow_acceptance.SPARSE_PROBE,
+                                 workspace / cow_acceptance.SPARSE_PATH]))
+        require(changed['content_sha256'] == hashlib.sha256(cow_acceptance.sparse_expected_bytes()).hexdigest()
+                and changed['size_bytes'] == len(cow_acceptance.sparse_expected_bytes()), 'Sparse result identity changed')
+        after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+        receipt['cow_observation']['source_read_bytes'] = after_reads
+        require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
+        phase = 'mounted_sparse_cow_publication'
+        wait('sparse COW publication', lambda: plane.fabric_files.get(cow_acceptance.SPARSE_PATH)
+             == cow_acceptance.sparse_expected_bytes(), 90)
+        after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+        receipt['cow_observation']['source_read_bytes'] = after_reads
+        require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
+        record('native_mount_sparse_cold_cow', **changed, durable_publication=True,
+               cold_read_tested=True, cold_source_initially_uncached=True, source_digest=sparse['digest'],
+               physical_source_bytes=len(cow_acceptance.SPARSE_PREFIX), source_read_bytes_before=before_reads,
+               source_read_bytes=after_reads)
+        phase = "mounted_raw_cow_namespace"
         raw_source = cow_acceptance.canonical_raw_source()
         raw_seed = plane.seed_canonical_raw_file(raw_source, cow_acceptance.RAW_BASE)
+        receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes']}
         wait("canonical raw source namespace", lambda: cold_namespace_ready(raw_seed['entry_seq']), 45)
         source_digests = {block['sha256'] for block in raw_source['blocks']['blocks']}
         before_reads = sum(plane.cow_source_read_bytes[digest] for digest in source_digests)
-        require(before_reads == 0, "Canonical raw source was already downloaded")
+        receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes'], 'source_read_bytes_before': before_reads}
+        phase = 'mounted_raw_cow_mutation'
         raw = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_PROBE,
                              workspace / raw_source['path'], workspace / cow_acceptance.RAW_DESTINATION]))
         require(raw['content_sha256'] == hashlib.sha256(cow_acceptance.expected_bytes()).hexdigest()
                 and raw['size_bytes'] == len(cow_acceptance.expected_bytes()), "Raw mounted result changed")
+        phase = 'mounted_raw_cow_publication'
         record("native_raw_sha_cow_rename", **raw,
                **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
-               cold_source_initially_uncached=True, source_size_bytes=len(cow_acceptance.RAW_BASE),
+               cold_read_tested=False, source_read_bytes_before=before_reads, source_size_bytes=len(cow_acceptance.RAW_BASE),
                source_digest=raw_source['digest'], source_read_bytes=sum(plane.cow_source_read_bytes[d] for d in source_digests))
         phase = "owned_service_remount"
         before_restart = snapshot()['service']['runtime']

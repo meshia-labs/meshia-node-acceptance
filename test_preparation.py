@@ -14,6 +14,33 @@ import report
 
 
 class Preparation(unittest.TestCase):
+    def test_sparse_workload_is_bounded_on_a_disposable_sparse_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'fixture'
+            with path.open('wb') as output:
+                output.write(cow_acceptance.SPARSE_PREFIX)
+                output.truncate(cow_acceptance.SPARSE_SIZE)
+            self.assertLess(path.stat().st_blocks*512,8*1024**2)
+            result=json.loads(subprocess.check_output([sys.executable,'-I','-c',
+                cow_acceptance.SPARSE_PROBE,str(path)],timeout=10))
+            self.assertEqual(path.read_bytes(),cow_acceptance.sparse_expected_bytes())
+            self.assertTrue(result['far_zero_tail'])
+            self.assertTrue(result['sampled_untouched_prefix'])
+            self.assertEqual(result['logical_source_bytes'],cow_acceptance.SPARSE_SIZE)
+            self.assertEqual(report.public(result),result)
+        observation={'source_size_bytes':cow_acceptance.SPARSE_SIZE,'physical_source_bytes':len(cow_acceptance.SPARSE_PREFIX),
+                     'source_read_bytes_before':0,'source_read_bytes':8192,'raw_stderr':'private-sentinel','token':'private-sentinel'}
+        projected=report.public({'phase':'mounted_sparse_cow_cold_precondition','cow_observation':observation,
+                                 'message':'private-sentinel'})
+        self.assertEqual(projected['cow_observation']['source_read_bytes'],8192)
+        self.assertNotIn('private-sentinel',json.dumps(projected))
+        for marker in cow_acceptance.PROBE_FAILURE_MARKERS:
+            result=acceptance.subprocess_diagnostics(['python3'],1,b'',
+                ('AssertionError: '+marker+' private-sentinel').encode())
+            self.assertEqual(result['known_errors'],[marker])
+            self.assertEqual(result['exception_types'],['AssertionError'])
+            self.assertNotIn('private-sentinel',json.dumps(report.public({'diagnostics':result})))
+
     def test_unbound_release_fails_before_artifact_access(self):
         lock = json.loads((acceptance.ROOT / 'release-lock.json').read_text())
         self.assertEqual(lock['version'], '1.3.29')

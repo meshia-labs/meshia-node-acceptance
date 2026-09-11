@@ -15,7 +15,7 @@ import cow_acceptance
 
 
 @contextmanager
-def joined():
+def joined(*, default_cache_policy=False, disk_usage=None):
     from meshia_node.client import SignedClient
     from meshia_node.config import ConfigStore, Paths
     from meshia_node.enroll import enroll
@@ -48,8 +48,10 @@ def joined():
                 FabricRangeCache(root / 'cache', max_bytes=32*1024**2, chunk_bytes=4096),
                 FabricWatch(workspace_root, debounce_seconds=0, force_fallback=True, clock=clock), workspace,
                 FabricAuthority(host.id, host.session_id, host.generation, common['attachment_id']),
-                root / 'staging', clock=clock, max_auto_materializations=0, min_staging_free_bytes=0,
-                staging_admission_path=root / 'admission.sqlite3', max_staging_bytes=128*1024**2)
+                root / 'staging', clock=clock, min_staging_free_bytes=0,
+                staging_admission_path=root / 'admission.sqlite3', max_staging_bytes=128*1024**2,
+                **({} if default_cache_policy else {'max_auto_materializations': 0}),
+                **({} if disk_usage is None else {'disk_usage': disk_usage}))
             def drive(predicate):
                 for _ in range(800):
                     coordinator.poll_once(); now[0] += .2
@@ -72,6 +74,61 @@ def joined():
 
 
 class CowFixture(unittest.TestCase):
+    def test_default_policy_prefetches_small_seed_but_sparse_source_stays_cold(self):
+        from collections import namedtuple
+        from meshia_node.fabric_mount import FabricMountBackend
+        from meshia_node.fabric_contract_generated import FileTree
+        capacity = namedtuple('Usage', 'total used free')(256*1024**3,128*1024**3,128*1024**3)
+        with joined(default_cache_policy=True, disk_usage=lambda _path: capacity) as (
+                plane, host, common, transport, coordinator, database, workspace, drive):
+            self.assertEqual(coordinator.max_auto_materialized_bytes, 2*1024**3)
+            small = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
+            drive(lambda: plane.cow_source_read_bytes[small['content_sha256']] > 0)
+            seed = plane.seed_cold_file(cow_acceptance.SPARSE_PATH, cow_acceptance.SPARSE_PREFIX,
+                                       logical_size=cow_acceptance.SPARSE_SIZE)
+            entry = plane.v2_entries[cow_acceptance.SPARSE_PATH]
+            # Exact released production parser validates the sparse shape.
+            tree = FileTree.from_descriptor(entry['blocks'], load_node=None, read_object=None, put_object=None)
+            self.assertEqual((tree.size, tree.digest), (seed['size_bytes'], seed['digest']))
+            drive(lambda: database.get_remote_manifest_head().generation >= seed['entry_seq'])
+            self.assertEqual(plane.cow_source_read_bytes[seed['content_sha256']], 0)
+            self.assertIsNone(workspace.stat_fingerprint(cow_acceptance.SPARSE_PATH))
+            self.assertNotIn(cow_acceptance.SPARSE_PATH, plane.fabric_files)
+            self.assertEqual(plane._tree_bytes(entry['blocks'], seed['size_bytes'], seed['digest'], validate_only=True), b'')
+            with self.assertRaises(Rejected):
+                plane._tree_bytes(entry['blocks'], seed['size_bytes'], seed['digest'])
+            with self.assertRaises(Rejected):
+                plane._tree_bytes(entry['blocks'], seed['size_bytes'], '0'*64, validate_only=True)
+            with self.assertRaises(Rejected):
+                plane._tree_bytes(entry['blocks'], seed['size_bytes'], seed['digest'], data_proofs=set(), validate_only=True)
+            backend = FabricMountBackend(database, coordinator, workspace, 'Research', settle_seconds=60)
+            path = '/Research/' + cow_acceptance.SPARSE_PATH
+            opened = None
+            try:
+                opened = backend.open(path, os.O_RDWR)
+                self.assertIsNotNone(backend._handles[opened].tree_journal)
+                self.assertEqual(plane.cow_source_read_bytes[seed['content_sha256']], 0)
+                backend.write(opened, cow_acceptance.PATCH_OFFSET, cow_acceptance.PATCH)
+                changed = bytearray(cow_acceptance.SPARSE_PREFIX)
+                changed[cow_acceptance.PATCH_OFFSET:cow_acceptance.PATCH_OFFSET+len(cow_acceptance.PATCH)] = cow_acceptance.PATCH
+                for offset in (0,65520,786400,len(changed)-64):
+                    self.assertEqual(backend.read(opened,offset,64), bytes(changed[offset:offset+64]))
+                self.assertEqual(backend.read(opened,seed['size_bytes']-512,128), bytes(128))
+                backend.write(opened,seed['size_bytes']-256,b'tail-edit')
+                self.assertEqual(backend.read(opened,seed['size_bytes']-260,17),bytes(4)+b'tail-edit'+bytes(4))
+                self.assertLess(plane.cow_source_read_bytes[seed['content_sha256']], 32768)
+                backend.truncate(path,cow_acceptance.SHRINK,handle=opened)
+                backend.truncate(path,cow_acceptance.GROW,handle=opened); backend.fsync(opened)
+                self.assertEqual(backend.read(opened,0,cow_acceptance.GROW), cow_acceptance.sparse_expected_bytes())
+                backend.release(opened); opened=None; backend.flush_writes()
+                drive(lambda: plane.fabric_files.get(cow_acceptance.SPARSE_PATH)==cow_acceptance.sparse_expected_bytes())
+                self.assertGreater(plane.cow_source_read_bytes[seed['content_sha256']], 0)
+                self.assertLessEqual(plane.cow_source_read_bytes[seed['content_sha256']], 4*1024**2)
+                self.assertEqual(plane.v2_entries[cow_acceptance.SPARSE_PATH]['size_bytes'], cow_acceptance.GROW)
+            finally:
+                if opened is not None: backend.release(opened)
+                backend.close()
+
     def test_signed_raw_cas_ticket_upload_preserves_current_storage_contract(self):
         with joined() as (plane, host, common, transport, *_):
             data = b'public canonical raw CAS upload fixture'

@@ -9,12 +9,25 @@ PATCH_OFFSET = 65531
 SHRINK = 786437
 GROW = 1048583
 PATH = 'mac-cold-cow.bin'
+SPARSE_PATH = 'mac-large-cold-cow.bin'
+SPARSE_SIZE = 2 * 1024**3 + 4096
+# Different immutable bytes from the ordinary seed: its already-warm CAS
+# object must not let the cold fixture accidentally reuse a verified cache.
+SPARSE_PREFIX = BASE.translate(bytes(value ^ 0x5a for value in range(256)))
 RAW_BASE = bytes(range(256)) * (9 * 4096)
 RAW_DESTINATION = 'mac-raw-cow-renamed.bin'
 RAW_DESCRIPTOR_HASHES = {
     'implicit': ('canonical-raw-source.json', 'fbb8b377c7ea9290f1ba26b321452ccec14c39dafb29092db37024cc5b14e363'),
     'sha256': ('canonical-raw-source-explicit.json', '638b24ac83884a4dc28c27b93f37d4a02e88abaf2000de209fc60227500becd2'),
 }
+PROBE_FAILURE_MARKERS = (
+    'Cold source size changed', 'Partial edit changed untouched bytes',
+    'Truncate and growth did not preserve zero-fill', 'Closed mounted file readback changed',
+    'Raw source size changed', 'Raw partial edit changed source bytes',
+    'Raw truncate growth changed zero-fill', 'Raw closed file readback changed', 'Local rename changed bytes',
+    'Sparse source size changed', 'Sparse prefix window changed', 'Sparse untouched zero tail changed',
+    'Sparse tail write changed', 'Sparse shrink/grow result changed', 'Sparse closed readback changed',
+)
 
 
 def canonical_raw_source(algorithm='implicit'):
@@ -50,6 +63,12 @@ def expected_bytes():
     changed = bytearray(BASE)
     changed[PATCH_OFFSET:PATCH_OFFSET + len(PATCH)] = PATCH
     return bytes(changed[:SHRINK]) + bytes(GROW - SHRINK)
+
+
+def sparse_expected_bytes():
+    changed = bytearray(SPARSE_PREFIX[:SHRINK])
+    changed[PATCH_OFFSET:PATCH_OFFSET + len(PATCH)] = PATCH
+    return bytes(changed) + bytes(GROW - SHRINK)
 
 
 CLASSIC_RECREATE_BODY = b'mounted-recreated-source'
@@ -144,6 +163,33 @@ assert not p.exists() and destination.read_bytes()==expected,'Local rename chang
 print(json.dumps({'size_bytes':len(expected),'content_sha256':hashlib.sha256(expected).hexdigest(),
  'partial_write':True,'cross_block_write':True,'truncate':True,'regrow_zero_fill':True,
  'fsync':True,'mounted_readback':True,'closed_file_reopen':True,'local_rename':True}))
+'''
+
+
+# Logical size exceeds the normal maximum eager budget. No whole-file read,
+# hash, or >1-MiB publication occurs: only sampled windows, then shrink/grow.
+SPARSE_PROBE = r'''
+import hashlib,json,os,pathlib,sys
+p=pathlib.Path(sys.argv[1]);size=2*1024**3+4096
+prefix=(bytes(range(256))*8192).translate(bytes(v^0x5a for v in range(256)))
+patch=b'meshia-cow-partial-edit';expected=bytearray(prefix)
+with p.open('r+b',buffering=0) as f:
+ assert os.fstat(f.fileno()).st_size==size,'Sparse source size changed'
+ f.seek(65531);assert f.write(patch)==len(patch)
+ expected[65531:65531+len(patch)]=patch
+ for offset in (0,65520,786400,len(prefix)-64):
+  f.seek(offset);assert f.read(64)==bytes(expected[offset:offset+64]),'Sparse prefix window changed'
+ f.seek(size-512);assert f.read(128)==bytes(128),'Sparse untouched zero tail changed'
+ f.seek(size-256);assert f.write(b'tail-edit')==9
+ f.seek(size-260);assert f.read(17)==bytes(4)+b'tail-edit'+bytes(4),'Sparse tail write changed'
+ f.truncate(786437);f.truncate(1048583);os.fsync(f.fileno())
+ expected=bytes(expected[:786437])+bytes(1048583-786437)
+ f.seek(0);assert f.read()==expected,'Sparse shrink/grow result changed'
+assert p.read_bytes()==expected,'Sparse closed readback changed'
+print(json.dumps({'size_bytes':len(expected),'content_sha256':hashlib.sha256(expected).hexdigest(),
+ 'logical_source_bytes':size,'partial_write':True,'sampled_untouched_prefix':True,
+ 'far_zero_tail':True,'tail_write':True,'truncate':True,'regrow_zero_fill':True,
+ 'fsync':True,'mounted_readback':True}))
 '''
 
 RAW_REOPEN_PROBE = r'''

@@ -24,6 +24,7 @@ _STORAGE = 'connected_host_object_cas_v1'
 _STORAGES = {_STORAGE, 'object_cas_v1'}
 _MAX_FILE = 4 * 1024 * 1024
 _MAX_SOURCE = 9 * 1024 * 1024
+_MAX_TREE_SOURCE = 2 * 1024**3 + 4096
 _PAGE = 4096
 
 
@@ -52,7 +53,7 @@ def _tree_reference(raw, height):
 
 
 def _tree_node(raw, height):
-    if not 1 <= height <= 2 or not 69 <= len(raw) <= _PAGE or raw[:5] != b'MFT\x01' + bytes([height]):
+    if not 1 <= height <= _tree_height(_MAX_TREE_SOURCE) or not 69 <= len(raw) <= _PAGE or raw[:5] != b'MFT\x01' + bytes([height]):
         raise ValueError('Invalid tree node')
     cursor, children = 5, []
     for _ in range(64):
@@ -71,7 +72,7 @@ def _tree_descriptor(value, size, digest):
             or type(value['version']) is not int or value['version'] != 1 or value['algorithm'] != 'sha256'
             or value['file_digest_algorithm'] != _TREE_ALGORITHM or not isinstance(value['storage'], dict)
             or set(value['storage']) != {'kind'} or value['storage']['kind'] not in _STORAGES
-            or type(size) is not int or not 0 <= size <= _MAX_FILE or type(value['total_bytes']) is not int
+            or type(size) is not int or not 0 <= size <= _MAX_TREE_SOURCE or type(value['total_bytes']) is not int
             or value['total_bytes'] != size):
         raise ValueError('Invalid tree descriptor')
     tree, height = value['tree'], _tree_height(size)
@@ -103,7 +104,7 @@ class FabricV2Fixture:
         self.cow_counters = {'holds_acquired': 0, 'holds_released': 0,
                              'held_reads': 0, 'tree_commits': 0, 'tree_node_proofs': 0}
 
-    def seed_cold_file(self, path, data):
+    def seed_cold_file(self, path, data, *, logical_size=None):
         """Inject fixture-only durable bytes after head zero, without touching the mount.
 
         The returned sequence is announced through the ordinary v2 journal.
@@ -113,20 +114,26 @@ class FabricV2Fixture:
             path = self._fabric_path(path)
             if path in self.v2_entries or not isinstance(data, bytes) or not 0 < len(data) <= _MAX_FILE:
                 raise ValueError('The cold fixture requires a new bounded nonempty file')
-            size, sha = len(data), hashlib.sha256(data).hexdigest()
-            root = b'\1' + bytes.fromhex(sha) + struct.pack('!III', size, 0, size)
+            size = len(data) if logical_size is None else logical_size
+            if type(size) is not int or not len(data) <= size <= _MAX_TREE_SOURCE:
+                raise ValueError('Invalid sparse fixture size')
+            sha = hashlib.sha256(data).hexdigest()
+            root = b'\1' + bytes.fromhex(sha) + struct.pack('!III', len(data), 0, len(data))
             height = _tree_height(size)
             digest = hashlib.sha256(_TREE_DOMAIN + struct.pack('!QB', size, height) + root).hexdigest()
             blocks = {'version': 1, 'algorithm': 'sha256', 'file_digest_algorithm': _TREE_ALGORITHM,
                       'total_bytes': size, 'tree': {'height': height, 'root': root.hex()}, 'storage': {'kind': _STORAGE}}
             self.fabric_cas[sha] = data
-            self.fabric_cas_metadata[sha] = self._canonical_block_metadata(sha, size)
-            self.v2_data_proofs.add((sha, size))
+            self.fabric_cas_metadata[sha] = self._canonical_block_metadata(sha, len(data))
+            self.v2_data_proofs.add((sha, len(data)))
             self.cow_source_read_bytes[sha] = 0
             seq, now = len(self.v2_journal)+1, datetime.now(timezone.utc).isoformat()
             self.v2_entries[path] = {'path': path, 'kind': 'file', 'size_bytes': size,
                 'sha256': digest, 'entry_seq': seq, 'updated_at': now, 'blocks': copy.deepcopy(blocks)}
-            self.fabric_files[path], self.fabric_file_blocks[path] = data, copy.deepcopy(blocks)
+            # A sparse source exists only in the authoritative v2 namespace;
+            # never expose its physical prefix as a truncated legacy file.
+            if size == len(data):
+                self.fabric_files[path], self.fabric_file_blocks[path] = data, copy.deepcopy(blocks)
             self.v2_journal.append({'seq': seq, 'path': path, 'op': 'put', 'kind': 'file',
                 'digest': digest, 'prev_digest': None, 'size_bytes': size, 'blocks': copy.deepcopy(blocks),
                 'destination_path': None, 'mutation_id': str(uuid.uuid4()), 'committed_at': now})
@@ -162,10 +169,12 @@ class FabricV2Fixture:
                 'destination_path': None, 'mutation_id': str(uuid.uuid4()), 'committed_at': now})
             return copy.deepcopy(self.v2_entries[path])
 
-    def _tree_bytes(self, descriptor, size, digest, *, nodes=None, data_proofs=None):
+    def _tree_bytes(self, descriptor, size, digest, *, nodes=None, data_proofs=None, validate_only=False):
         """Resolve only admitted typed objects, with bounded logical traversal."""
         try:
             height, root = _tree_descriptor(descriptor, size, digest)
+            if not validate_only and size > _MAX_FILE:
+                raise Rejected(413, 'FIXTURE_MATERIALIZATION_TOO_LARGE')
             nodes = self.v2_tree_nodes if nodes is None else nodes
             data_proofs = self.v2_data_proofs if data_proofs is None else data_proofs
             visits = 0
@@ -175,12 +184,14 @@ class FabricV2Fixture:
                 if visits > 2048:
                     raise ValueError('Tree traversal exceeds fixture bound')
                 if ref is None:
-                    return bytes(count)
+                    return b'' if validate_only else bytes(count)
                 kind, sha, length = ref[:3]
                 raw = self._verify_canonical_block_locked({'sha256': sha, 'size_bytes': length})
                 if kind == 'data':
                     if (sha, length) not in data_proofs:
                         raise Rejected(409, 'FABRIC_TREE_CLOSURE_UNAVAILABLE')
+                    if validate_only:
+                        return b''
                     offset, visible = ref[3:]
                     return raw[offset:offset+min(count, visible)] + bytes(max(0, count-visible))
                 if (sha, length, level) not in nodes:
@@ -265,7 +276,7 @@ class FabricV2Fixture:
         else:
             path = self._fabric_path(payload.get('path'))
             digest = self._raw_digest(payload.get('file_digest'))
-            size = self._integer(payload.get('size_bytes'), minimum=0, maximum=_MAX_SOURCE, code='FABRIC_FILE_HOLD_INVALID')
+            size = self._integer(payload.get('size_bytes'), minimum=0, maximum=_MAX_TREE_SOURCE, code='FABRIC_FILE_HOLD_INVALID')
             mode = payload.get('mode')
             if mode not in {'read', 'write'}:
                 raise Rejected(400, 'FABRIC_FILE_HOLD_INVALID')
@@ -274,7 +285,10 @@ class FabricV2Fixture:
             entry = self.v2_entries.get(path)
             if entry is None or entry['kind'] != 'file' or (entry['sha256'], entry['size_bytes']) != (digest, size):
                 raise Rejected(409, 'FABRIC_FILE_HOLD_VERSION_STALE')
-            self._v2_file_bytes({'kind': 'file', 'size_bytes': size, 'sha256': digest, 'modified_at': None, 'blocks': entry['blocks']})
+            if entry['blocks'].get('file_digest_algorithm') == _TREE_ALGORITHM:
+                self._tree_bytes(entry['blocks'], size, digest, validate_only=True)
+            else:
+                self._v2_file_bytes({'kind': 'file', 'size_bytes': size, 'sha256': digest, 'modified_at': None, 'blocks': entry['blocks']})
             if len(self.v2_file_holds) >= 128:
                 raise Rejected(429, 'FIXTURE_FILE_HOLD_LIMIT')
             held = {'entry': copy.deepcopy(entry), 'mode': mode, 'released': False,
@@ -428,7 +442,7 @@ class FabricV2Fixture:
                 raise Rejected(409, 'FABRIC_FILE_HOLD_IDENTITY_CONFLICT')
             requested, blocks = self._block_descriptors(payload.get('blocks'), maximum=128)
             if entry['blocks'].get('file_digest_algorithm') == _TREE_ALGORITHM:
-                self._tree_bytes(entry['blocks'], entry['size_bytes'], entry['sha256'])
+                self._tree_bytes(entry['blocks'], entry['size_bytes'], entry['sha256'], validate_only=True)
                 height, root = _tree_descriptor(entry['blocks'], entry['size_bytes'], entry['sha256'])
                 referenced = {}
                 def visit(ref, level):
@@ -441,7 +455,7 @@ class FabricV2Fixture:
                             visit(child, level-1)
                 visit(root, height)
                 proof = payload.get('tree_path', [])
-                if not isinstance(proof, list) or len(proof) > 2:
+                if not isinstance(proof, list) or len(proof) > _tree_height(_MAX_TREE_SOURCE):
                     raise Rejected(400, 'FABRIC_TREE_INVALID')
                 try:
                     for encoded in proof:

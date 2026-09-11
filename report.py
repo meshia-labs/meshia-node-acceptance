@@ -32,6 +32,8 @@ SAFE_KEYS.update(('cross_block_write', 'closed_file_reopen', 'local_rename', 'si
                  'signed_lookup_old_source_absent', 'signed_destination_present', 'service_restart_readback',
                  'old_source_absent', 'pending_journal_crash_recovery_tested'))
 SAFE_KEYS.update(('source_recreated', 'signed_recreated_source_present', 'recreation_before_ack_timing_tested'))
+SAFE_KEYS.update(('cow_observation', 'source_read_bytes_before', 'physical_source_bytes', 'logical_source_bytes',
+                 'cold_read_tested', 'sampled_untouched_prefix', 'far_zero_tail', 'tail_write'))
 ARTIFACT_NAMES = {'meshia_node-1.3.29-py3-none-any.whl', 'MeshiaNode-1.3.29.app.zip', 'install-1.3.29.sh'}
 
 def public(value, *, depth=0):

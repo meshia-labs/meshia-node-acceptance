@@ -1,11 +1,11 @@
 # Meshia Node macOS acceptance kit
 
-Local binding checkpoint: this kit contains the exact committed 1.3.29 package.
-The four release files were copied from the canonical package commit and are
-bound by SHA-256. Public delivery verification and hosted dispatch are pending;
-no installation or hosted acceptance result is claimed by this binding.
-All 42 local adaptation, kit and signed COW checks pass against the exact
-bundled wheel. These local checks do not create an OS mount.
+This kit retains the exact public 1.3.29 package, bound by SHA-256. The first
+hosted run, 34635392657, passed signed installation and mounted dirty rename
+with source recreation on ARM and Intel, then failed the original COW phase;
+both jobs cleaned up. The bounded cold-source correction here has not been
+dispatched. All 44 local adaptation, kit and signed COW checks pass against the
+exact bundled wheel. These local checks do not create an OS mount.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It will test the exact packaged 1.3.29 artifacts without changing Meshia's public installer channel.
@@ -28,15 +28,22 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   service; every installed Python module matches the exact wheel.
 - An actual native filesystem mount starts with empty generation zero and
   persists a mounted read/write round trip to a loopback Fabric fixture.
-  It then receives a cold 2 MiB tree-backed source through the signed namespace,
+  It then receives a 2 MiB tree-backed source through the signed namespace,
   partially overwrites it, verifies untouched bytes, shrinks and regrows it,
-  fsyncs and checks both mounted readback and exact durable publication. The
-  fixture confirms no source bytes were downloaded before this workload.
+  fsyncs and checks both mounted readback and exact durable publication.
+  A separate logical 2 GiB + 4096-byte typed tree exceeds the default eager
+  materialization budget, using only a distinct 2 MiB physical prefix and an
+  implicit zero tail. The fixture requires zero source bytes downloaded before
+  this cold workload, samples prefix and far-tail reads/writes, then shrinks to
+  roughly 1 MiB before fsync and durable publication. It never reads or hashes
+  the complete logical file. Source reads remain bounded at 4 MiB.
   A separate canonical web-generated 9 MiB source retains its ordinary whole-
   content SHA and `object_cas_v1` 4+4+1 MiB block layout. The installed mount
   edits across the last block boundary, shrinks/regrows and renames it. Both
   the classic dirty-file rename and this COW rename must publish exact bytes
   and remove the old source from signed authoritative listing and lookup.
+  The ordinary 2 MiB and 9 MiB cases allow normal eager materialization and
+  record observed read counters without claiming they stayed cold.
   A separate real mounted dirty rename immediately recreates its old source
   with exclusive creation. Both the recreated source and renamed destination
   must retain their distinct bytes in signed listing/lookup and durable storage.
@@ -102,7 +109,9 @@ claims. Both lanes retain signed request validation and completion receipts.
 The standalone v2 fixture adds authenticated empty snapshots, journal changes,
 file lookup, verified block reads, immutable file-version holds, bounded typed
 tree proofs and the put/delete operations used here. Its independent tree
-decoder is limited to 4 MiB files and two index levels. It validates
+decoder limits materialized output and physical objects to 4 MiB. Read-only
+closure validation admits the bounded logical sparse source through four
+index levels without allocating its zero tail. It validates
 attachment/generation, object bytes, per-path predecessors
 and exact replay identity using the same in-memory fixture storage. Unsupported
 namespace operations fail explicitly. Legacy missing manifests still fail;
