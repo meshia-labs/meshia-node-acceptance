@@ -1,10 +1,11 @@
-# Meshia Node 1.3.19 macOS acceptance prerelease
+# Meshia Node 1.3.20 macOS acceptance prerelease
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It does not change Meshia's current public installer channel (1.3.14).
 
-Package commit: `8a8b6bf616040e604e0a4b3d4f21c64411e17a32`; clean source:
-`c5c8fd1393ff445fc61c8d4c45364e5e130d1082`. The `release-lock.json` binds
+This preparation refuses installation until final notarized artifacts are bound.
+Package commit: `PENDING_FINAL_PACKAGE_COMMIT`; clean source:
+`f222af98c5bc50d4e1f2678c96e44e1b11afed9c`. The final `release-lock.json` will bind
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -85,7 +86,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.19 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.20 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -94,8 +95,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.19-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.19-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.20-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.20-acceptance.1`
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`
@@ -125,6 +126,13 @@ The exact 1.3.18 [run 34552641120](https://github.com/meshia-labs/meshia-node-ac
 passed native acceptance and cleanup on both architectures. Its tagged source,
 artifacts and receipts remain unchanged. That pass did not test the additional
 TLS-directory restriction or default-public-CA coverage added for 1.3.19.
+
+The first 1.3.19 [run 34555012949](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34555012949)
+passed Intel and failed ARM with native startup exit 70 at the CA-store step;
+both runners cleaned up. The diagnostic-only [run 34555944736](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34555944736)
+then passed both architectures with unchanged artifacts, commands, permissions
+and timeouts. The original startup failure remains unexplained. A later
+candidate pass must not be described as a fix for that historical failure.
 
 Dependency downloads use the wheel's pinned Python requirements and the
 canonical installer's verified runtime prerequisites. They do not provision
