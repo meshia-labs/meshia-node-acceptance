@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = None  # Bound only after the canonical notarized 1.3.29 manifest exists.
+LOCK_SHA256 = "e07d85b104be8eba73d6a785127f18b7626caa2d5192fb8499491887951f2fe5"
 LABEL = "io.meshia.node"
 PUBLIC_CA_PROBE = """import json,ssl
 count = ssl.create_default_context().cert_store_stats()['x509_ca']

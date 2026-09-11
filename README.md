@@ -1,18 +1,18 @@
 # Meshia Node macOS acceptance kit
 
-Offline preparation checkpoint: this kit targets 1.3.29. Source, package,
-artifact and lock bindings are null until the canonical notarized manifest is
-provided. Verification fails before staging or installation while unbound.
-The release directory still contains the historical 1.3.28 files; replace that
-entire inventory with the exact four canonical 1.3.29 artifacts at binding.
-No publication, installation or hosted dispatch has occurred from this branch.
+Local binding checkpoint: this kit contains the exact committed 1.3.29 package.
+The four release files were copied from the canonical package commit and are
+bound by SHA-256. Public delivery verification and hosted dispatch are pending;
+no installation or hosted acceptance result is claimed by this binding.
+All 42 local adaptation, kit and signed COW checks pass against the exact
+bundled wheel. These local checks do not create an OS mount.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It will test the exact packaged 1.3.29 artifacts without changing Meshia's public installer channel.
 
-Package commit and clean source: pending. The `release-lock.json` will bind
-every included file; the verifier separately pins the lock's SHA-256. The exact
-source/package expectations in `test_kit.py` must be filled at the same time.
+Package commit: `e3b360eb3e08e91fd7c500642409b05cc4ca3a1d`; clean source:
+`fd0de4a74575da57c65ca93c8ab0cadecada6acc`. The `release-lock.json` binds
+every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
 
@@ -123,7 +123,7 @@ internal contract tree is included.
 
 ## Local verification without installation
 
-While release bindings are pending, run only the portable adaptation checks:
+The portable adaptation checks run without product imports:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_preparation
@@ -131,7 +131,7 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_preparation
 
 These exercise the filesystem workload on ordinary temporary files, reject
 bad authoritative projections and prove that an unbound kit cannot install.
-They are not native mount or final wheel acceptance. After binding:
+They are not native mount or final wheel acceptance. For the bound wheel:
 
 Use Python 3.12+ with the wheel's pinned dependencies available:
 

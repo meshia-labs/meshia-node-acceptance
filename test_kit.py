@@ -21,8 +21,8 @@ import app_acceptance
 import cow_acceptance
 import report
 
-EXPECTED_SOURCE_COMMIT = None  # Bind from the canonical29 package manifest.
-EXPECTED_PACKAGE_COMMIT = None
+EXPECTED_SOURCE_COMMIT = 'fd0de4a74575da57c65ca93c8ab0cadecada6acc'
+EXPECTED_PACKAGE_COMMIT = 'e3b360eb3e08e91fd7c500642409b05cc4ca3a1d'
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
