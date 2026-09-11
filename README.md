@@ -1,18 +1,18 @@
 # Meshia Node macOS acceptance kit
 
-Local binding checkpoint: the kit now pins the packaged 1.3.28 artifacts.
-All 39 local checks, including seven signed COW cases with canonical raw SHA
-and both dirty rename paths, pass against the exact bundled wheel from source
-`354f8bebd55b1bd2f93d9b546d8913ec674c564c`.
-Public delivery must be verified before publishing or dispatching this kit.
-No fresh Mac27 or Mac28 hosted result is claimed by this binding commit.
+Offline preparation checkpoint: this kit targets 1.3.29. Source, package,
+artifact and lock bindings are null until the canonical notarized manifest is
+provided. Verification fails before staging or installation while unbound.
+The release directory still contains the historical 1.3.28 files; replace that
+entire inventory with the exact four canonical 1.3.29 artifacts at binding.
+No publication, installation or hosted dispatch has occurred from this branch.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
-It tests the exact packaged 1.3.28 artifacts without changing Meshia's public installer channel.
+It will test the exact packaged 1.3.29 artifacts without changing Meshia's public installer channel.
 
-Package commit: `dbd26afb4f091ccef9590f0994c2c50923f14ed1`; clean source:
-`354f8bebd55b1bd2f93d9b546d8913ec674c564c`. The `release-lock.json` binds
-every included file; the verifier separately pins the lock's SHA-256.
+Package commit and clean source: pending. The `release-lock.json` will bind
+every included file; the verifier separately pins the lock's SHA-256. The exact
+source/package expectations in `test_kit.py` must be filled at the same time.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
 
@@ -37,6 +37,11 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   edits across the last block boundary, shrinks/regrows and renames it. Both
   the classic dirty-file rename and this COW rename must publish exact bytes
   and remove the old source from signed authoritative listing and lookup.
+  A separate real mounted dirty rename immediately recreates its old source
+  with exclusive creation. Both the recreated source and renamed destination
+  must retain their distinct bytes in signed listing/lookup and durable storage.
+  This hosted workload does not force recreation before a remote ACK; the
+  product's controlled joined regression covers that ordering separately.
   One canonical owned-service restart then verifies remounted bytes and old
   source absence; it is not a forced crash or pending-write crash-recovery test.
 - Full compute uses the ordinary account and can read/write a personal canary.
@@ -118,6 +123,16 @@ internal contract tree is included.
 
 ## Local verification without installation
 
+While release bindings are pending, run only the portable adaptation checks:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_preparation
+```
+
+These exercise the filesystem workload on ordinary temporary files, reject
+bad authoritative projections and prove that an unbound kit cannot install.
+They are not native mount or final wheel acceptance. After binding:
+
 Use Python 3.12+ with the wheel's pinned dependencies available:
 
 ```sh
@@ -134,7 +149,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.28 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.29 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -143,8 +158,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.28-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.28-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.29-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.29-acceptance.1`
    For an authorized focused diagnosis on a fresh reviewed tag, add
    `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
@@ -188,3 +203,13 @@ Dependency downloads use the wheel's pinned Python requirements and the
 canonical installer's verified runtime prerequisites. They do not provision
 compute or call production accounts. Network availability and GitHub's hosted
 macOS restrictions remain real acceptance conditions.
+
+The historical 1.3.28 kit commit `c173b09` passed 39 local checks against its
+bound wheel, but the fresh hosted ARM run failed at `classic_dirty_rename`
+after native installation, NFS mount and initial mounted publication passed.
+Its local old-source absence assertion is retained here; a local backend pass
+did not establish hosted acceptance. The original bounded public receipt is
+preserved separately by the audit owner. The primary Mac28 upgrade also failed
+automatic recovery of its older queued rename; no manual pending-row repair
+was performed. Fresh29 acceptance must not be described as recovery of that
+historical fixture.

@@ -21,9 +21,12 @@ import app_acceptance
 import cow_acceptance
 import report
 
+EXPECTED_SOURCE_COMMIT = None  # Bind from the canonical29 package manifest.
+EXPECTED_PACKAGE_COMMIT = None
+
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.28-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.29-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
     def test_cow_probe_bytes_on_plain_fixture_do_not_claim_native_mount(self):
@@ -180,9 +183,9 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.28')
-        self.assertEqual(lock['source_commit'], '354f8bebd55b1bd2f93d9b546d8913ec674c564c')
-        self.assertEqual(lock['package_commit'], 'dbd26afb4f091ccef9590f0994c2c50923f14ed1')
+        self.assertEqual(manifest['version'], '1.3.29')
+        self.assertEqual(lock['source_commit'], EXPECTED_SOURCE_COMMIT)
+        self.assertEqual(lock['package_commit'], EXPECTED_PACKAGE_COMMIT)
 
     def test_tampered_artifact_lock_extra_file_and_symlink_fail(self):
         for mode in ('bytes', 'lock', 'extra', 'symlink'):
@@ -190,7 +193,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.28.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.29.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -214,7 +217,7 @@ class ReleaseBoundary(unittest.TestCase):
             target = Path(name) / 'artifacts'
             acceptance.fetch(target)
             context = acceptance.read_json(target / 'context.json')
-            self.assertEqual(context['source'], '354f8bebd55b1bd2f93d9b546d8913ec674c564c')
+            self.assertEqual(context['source'], EXPECTED_SOURCE_COMMIT)
             for file, digest in context['artifacts'].items():
                 self.assertEqual(hashlib.sha256((target / file).read_bytes()).hexdigest(), digest)
 
@@ -240,7 +243,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.28-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.29-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)

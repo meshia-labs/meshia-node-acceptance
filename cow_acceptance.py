@@ -52,6 +52,50 @@ def expected_bytes():
     return bytes(changed[:SHRINK]) + bytes(GROW - SHRINK)
 
 
+CLASSIC_RECREATE_BODY = b'mounted-recreated-source'
+CLASSIC_RENAME_BODY = b'mounted-second-edit'
+CLASSIC_RECREATE_PROBE = r'''
+import json,os,pathlib,sys
+p,q=map(pathlib.Path,sys.argv[1:])
+with p.open('wb',buffering=0) as f:
+ assert f.write(b'mounted-second-edit')==len(b'mounted-second-edit')
+ os.fsync(f.fileno())
+p.rename(q)
+assert not p.exists(),'Renamed source remains locally visible'
+assert q.read_bytes()==b'mounted-second-edit','Renamed destination bytes changed'
+with p.open('xb',buffering=0) as f:
+ assert f.write(b'mounted-recreated-source')==len(b'mounted-recreated-source')
+ os.fsync(f.fileno())
+assert p.read_bytes()==b'mounted-recreated-source','Recreated source bytes changed'
+assert q.read_bytes()==b'mounted-second-edit','Recreation changed renamed destination'
+print(json.dumps({'local_rename':True,'source_recreated':True,'mounted_readback':True,'fsync':True}))
+'''
+
+
+def verify_recreated_source_projection(snapshot, source_lookup, destination_lookup, *, source, destination):
+    expected = {source: CLASSIC_RECREATE_BODY, destination: CLASSIC_RENAME_BODY}
+    if (not isinstance(snapshot, dict) or snapshot.get('schema') != 'meshia.fabric_v2.snapshot.v1'
+            or snapshot.get('workspace') != 'workspace' or snapshot.get('next_after', 'missing') is not None
+            or not isinstance(snapshot.get('entries'), list)):
+        raise AssertionError('Recreated-source snapshot identity changed')
+    entries = snapshot['entries']
+    if any(not isinstance(item, dict) or not isinstance(item.get('path'), str) for item in entries):
+        raise AssertionError('Recreated-source listing changed')
+    listed = {item['path']: item for item in entries}
+    if len(listed) != len(entries):
+        raise AssertionError('Recreated-source listing contains duplicate paths')
+    for path, reply in ((source, source_lookup), (destination, destination_lookup)):
+        body = expected[path]
+        if (not isinstance(reply, dict) or reply.get('schema') != 'meshia.fabric_v2.entry.v1'
+                or reply.get('workspace') != 'workspace' or not isinstance(reply.get('entry'), dict)):
+            raise AssertionError('Recreated-source lookup identity changed')
+        entry = reply['entry']
+        if (entry.get('path') != path or entry.get('kind') != 'file' or entry.get('size_bytes') != len(body)
+                or entry.get('sha256') != hashlib.sha256(body).hexdigest() or listed.get(path) != entry):
+            raise AssertionError('Recreated source or renamed destination was not durably preserved')
+    return {'signed_recreated_source_present': True, 'signed_destination_present': True}
+
+
 # Run with the installed Python, without checkout imports or injected native
 # ownership. The first byte read occurs only after the cold source is edited.
 PROBE = r'''

@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "048d8573d287759179c32777d17f074664f5e0b1897e5d6068ba1e1ddc374c12"
+LOCK_SHA256 = None  # Bound only after the canonical notarized 1.3.29 manifest exists.
 LABEL = "io.meshia.node"
 PUBLIC_CA_PROBE = """import json,ssl
 count = ssl.create_default_context().cert_store_stats()['x509_ca']
@@ -117,7 +117,7 @@ def native_completion_diagnostics(completion):
     text = output.decode(errors='replace') + '\n' + (message[:4096] if isinstance(message, str) else '')
     fixed = ['Default public CA store is empty',
              'The command exceeded its timeout and its process session was stopped.']
-    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.28-py3-none-any.whl') as archive:
+    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.29-py3-none-any.whl') as archive:
         for module in ('native_command', 'macos_native', 'native_execution', 'workspace'):
             source = archive.read('meshia_node/' + module + '.py').decode()
             fixed.extend(re.findall(r'raise [A-Za-z_]\w*\("([^"$\n]{8,240})"\)', source))
@@ -170,7 +170,7 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.28.sh').read_text()
+    script = (ROOT / 'release/install-1.3.29.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     known = sorted((text for text in dict.fromkeys(fixed) if text in output),
@@ -233,7 +233,7 @@ def write_json(path, value):
 
 def verify_release(root=None):
     """Read-only verification; no checkout history, credentials or network."""
-    require(re.fullmatch(r'[a-f0-9]{64}', LOCK_SHA256) is not None,
+    require(re.fullmatch(r'[a-f0-9]{64}', LOCK_SHA256 or '') is not None,
             "Final notarized artifact identities are not bound")
     root = ROOT if root is None else Path(root)
     lock_path = root / "release-lock.json"
@@ -251,9 +251,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.28-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.28.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.28", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.29-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.29.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.29", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -414,7 +414,7 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.28.sh').read_text()
+    source = (ROOT / 'release/install-1.3.29.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
     libraries = (('/usr/local/lib', 'libfuse-t.dylib'),
@@ -626,6 +626,34 @@ def acceptance(directory):
         require(data == expected, "Authoritative renamed bytes changed")
         return {**facts, "durable_publication": True}
 
+    def durable_recreated_source(source, destination):
+        from meshia_node.config import ConfigStore, Paths
+        from meshia_node.client import SignedClient
+        from meshia_node.identity import DeviceIdentity
+        from meshia_node.fabric import SignedFabricTransport
+        import cow_acceptance
+        expected = {source: cow_acceptance.CLASSIC_RECREATE_BODY,
+                    destination: cow_acceptance.CLASSIC_RENAME_BODY}
+        wait('durable recreated source and renamed destination', lambda:
+             all(plane.fabric_files.get(path) == body for path, body in expected.items()), 90)
+        paths = Paths(node_home)
+        store = ConfigStore(paths); current = store.require()
+        require(current.api_url == plane.origin and current.host_id in plane.hosts,
+                'Recreation observer must use this disposable loopback account')
+        transport = SignedFabricTransport(SignedClient(store, DeviceIdentity.load_or_create(paths.identity_dir)),
+                                         current.host_id, allow_insecure_loopback=True)
+        common = {'attachment_id': current.attachment_id, 'workspace': 'workspace'}
+        facts = cow_acceptance.verify_recreated_source_projection(
+            transport.snapshot_v2({**common, 'limit': 256}),
+            transport.lookup_v2({**common, 'path': source}),
+            transport.lookup_v2({**common, 'path': destination}), source=source, destination=destination)
+        for path, body in expected.items():
+            entry = plane.v2_entries[path]
+            actual, _ = plane._v2_file_bytes({'kind': 'file', 'size_bytes': entry['size_bytes'],
+                'sha256': entry['sha256'], 'blocks': entry['blocks'], 'modified_at': None})
+            require(actual == body, 'Authoritative recreated-source bytes changed')
+        return {**facts, 'durable_publication': True, 'recreation_before_ack_timing_tested': False}
+
     def expired(_signum, _frame):
         raise TimeoutError("Mac acceptance reached its ten-minute test deadline")
 
@@ -698,6 +726,14 @@ def acceptance(directory):
              "p.rename(q);assert not p.exists() and q.read_bytes()==b'mounted-edited'",
              workspace / "mac-mounted.txt", workspace / "mac-mounted-renamed.txt"])
         record("native_classic_dirty_rename", **durable_rename("mac-mounted.txt", "mac-mounted-renamed.txt", b"mounted-edited"))
+        phase = 'classic_dirty_rename_recreate'
+        import cow_acceptance
+        recreated = json.loads(run([python, '-I', '-c', cow_acceptance.CLASSIC_RECREATE_PROBE,
+            workspace / 'mac-mounted-renamed.txt', workspace / 'mac-mounted-recreate-renamed.txt']))
+        require(recreated == {'local_rename': True, 'source_recreated': True,
+                              'mounted_readback': True, 'fsync': True}, 'Mounted recreation result changed')
+        record('native_classic_dirty_rename_recreate', **recreated,
+               **durable_recreated_source('mac-mounted-renamed.txt', 'mac-mounted-recreate-renamed.txt'))
         phase = "mounted_cold_cow"
         import cow_acceptance
         seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
