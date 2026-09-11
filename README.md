@@ -1,10 +1,10 @@
 # Meshia Node macOS acceptance kit
 
-**1.3.30 local preparation: bound, not yet published or hosted.** The four files
+**1.3.30 corrected fixture: bound, not yet republished or rerun.** The four files
 come directly from canonical artifact commit `b474350a4382b772eb14c91db3e84d56c047c7a9`,
 with native source `b909a4614582f49b4f8957dbeb2afe8cbd502a58`. Their hashes are
 bound in `release-lock.json`; public delivery verification and the release
-owner's GO are still required before a tag, publication or workflow dispatch.
+owner's GO are still required before a new tag, publication or workflow dispatch.
 The exact bound kit passed 18 focused local checks in 11.999 seconds: retained
 descriptor workload, signed access-snapshot ordering, app-driver ordering and
 failure cleanup, artifact/primary-account fences, signed enrollment/revocation,
@@ -34,6 +34,9 @@ detached-child cancellation and always-run cleanup. It adds:
   reservation complete before the ordinary heartbeat reports the new mode.
   Every heartbeat completes normally; no socket or signer lock is blocked.
   The installed config must then adopt the mode before register/HTTP proceeds.
+  It uses the existing prior config directly and the original 40-second
+  permission-adoption allowance, covering the unchanged 30-second heartbeat
+  cadence. Fixed assertion names and safe phase facts are retained on failure.
   Both Full to Workspace-only and Workspace-only to Full are checked through
   the installed service. This is controlled fixture ordering, not production
   concurrency evidence; product tests separately cover old-grant cancellation.
@@ -196,8 +199,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
 3. Only after the release owner's explicit GO, tag the reviewed bound kit commit
-   `v1.3.30-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.30-acceptance.1 -f profile=changed-paths`
+   `v1.3.30-acceptance.2`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.30-acceptance.2 -f profile=changed-paths`
    For an authorized focused diagnosis on a fresh reviewed tag, add
    `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
@@ -265,4 +268,22 @@ passed on ARM and Intel with unchanged product artifacts, including the bounded
 sparse cold source and cleanup. This is historical Mac29 proof, not Mac30
 acceptance. Both hosted images had SIP disabled while Gatekeeper remained
 enabled; loopback authentication, bundled transport, finite SSE and controlled
-recreation/restart limits still apply. No Mac30 result is claimed here.
+recreation/restart limits still apply. No complete Mac30 pass is claimed here.
+
+The first Mac30 [run 34644477967](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34644477967),
+kit `f856b4c3ef5ae2ca83afa76a26880e5692d5dcd5`, failed on both architectures;
+both cleaned up. Signed installation, real NFS retained-FD coherence, exact
+durable bytes and empty-list stability passed. Intel completed a genuine
+new-mode reservation before failing the fixture's `delayed_access_heartbeat`
+phase; ARM failed earlier in the transition setup. Exact assertion literals
+were not preserved, and the original result remains unchanged.
+
+The fixture incorrectly required a new heartbeat within exactly 30 seconds
+and allowed only 15 seconds for the following adoption, while the released
+runner's cadence is 30 seconds. This correction removes the preliminary wait
+and restores the existing 40-second permission-adoption bound; no product
+bytes, cadence, ownership or permission checks change. A virtual-clock test
+using the exact released client's real signed heartbeat fails under the old
+15-second bound and passes under the correction. Four focused tests passed in
+9.233 seconds, including both access directions and timeout/cleanup handling.
+These local checks do not establish a successful hosted app transition.
