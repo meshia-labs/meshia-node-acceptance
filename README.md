@@ -1,18 +1,17 @@
 # Meshia Node macOS acceptance kit
 
-Preparation checkpoint: the new COW and negotiated-read checks below are not
-yet published or bound for hosted execution. The bundled artifact lock still
-pins the historical 1.3.26 release. The seven signed COW cases, including
-canonical raw SHA and both dirty rename paths, pass against combined 1.3.28
-source `354f8bebd55b1bd2f93d9b546d8913ec674c564c`. Rebind to the actual final
-1.3.28 artifacts before the next hosted dispatch. No fresh Mac27 or Mac28
-hosted result is claimed by this preparation commit.
+Local binding checkpoint: the kit now pins the packaged 1.3.28 artifacts.
+All 39 local checks, including seven signed COW cases with canonical raw SHA
+and both dirty rename paths, pass against the exact bundled wheel from source
+`354f8bebd55b1bd2f93d9b546d8913ec674c564c`.
+Public delivery must be verified before publishing or dispatching this kit.
+No fresh Mac27 or Mac28 hosted result is claimed by this binding commit.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
-It tests the already published 1.3.26 artifacts without changing Meshia's public installer channel.
+It tests the exact packaged 1.3.28 artifacts without changing Meshia's public installer channel.
 
-Package commit: `a3556eef135f268735887c4dec79b576bc06f6c0`; clean source:
-`3d9580f3bd3cc838d1afcbb085115f2f879ac787`. The `release-lock.json` binds
+Package commit: `dbd26afb4f091ccef9590f0994c2c50923f14ed1`; clean source:
+`354f8bebd55b1bd2f93d9b546d8913ec674c564c`. The `release-lock.json` binds
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -135,7 +134,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.26 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.28 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -144,8 +143,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.26-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.26-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.28-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.28-acceptance.1`
    For an authorized focused diagnosis on a fresh reviewed tag, add
    `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
