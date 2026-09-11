@@ -663,6 +663,25 @@ def acceptance(directory):
         require(records and all(item["type"] in ("smbfs", "nfs", "fuse", "osxfuse", "macfuse") for item in records),
                 "No actual native filesystem mount was observed")
         record("native_mount_roundtrip", mounts=records)
+        phase = "mounted_cold_cow"
+        import cow_acceptance
+        seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
+        # Observe namespace publication without warming the seeded file bytes.
+        def cold_namespace_ready():
+            value = ready()
+            return (value is not None and value.get("service", {}).get("runtime", {})
+                    .get("fabric_head_generation", -1) >= seed["entry_seq"])
+        wait("cold file namespace", cold_namespace_ready, 45)
+        require(plane.cow_source_read_bytes[seed["content_sha256"]] == 0,
+                "Cold acceptance source was already downloaded")
+        cow = json.loads(run([python, "-I", "-c", cow_acceptance.PROBE, workspace / cow_acceptance.PATH]))
+        require(cow_acceptance.validate(cow), "Mounted COW result changed")
+        wait("mounted COW publication", lambda: plane.fabric_files.get(cow_acceptance.PATH)
+             == cow_acceptance.expected_bytes(), 90)
+        record("native_mount_cold_cow", **cow, durable_publication=True,
+               source_size_bytes=seed["size_bytes"], source_digest=seed["digest"],
+               cold_source_initially_uncached=True,
+               source_read_bytes=plane.cow_source_read_bytes[seed["content_sha256"]])
         phase = "full_command"
         private = home / "meshia-acceptance-personal.txt"
         require(not private.exists(), "Personal canary unexpectedly exists")

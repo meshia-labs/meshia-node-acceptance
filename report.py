@@ -23,6 +23,11 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
 SAFE_KEYS.update(('head', 'range_head', 'not_modified'))
+SAFE_KEYS.update(('finite_body', 'negotiated_read_bytes', 'finite_response_bytes',
+                 'finite_read_count', 'largest_read_bytes', 'finite_response_sha256'))
+SAFE_KEYS.update(('size_bytes', 'content_sha256', 'partial_write', 'truncate', 'regrow_zero_fill',
+                 'fsync', 'mounted_readback', 'durable_publication', 'source_size_bytes', 'source_digest'))
+SAFE_KEYS.update(('cold_source_initially_uncached', 'source_read_bytes'))
 ARTIFACT_NAMES = {'meshia_node-1.3.26-py3-none-any.whl', 'MeshiaNode-1.3.26.app.zip', 'install-1.3.26.sh'}
 
 def public(value, *, depth=0):

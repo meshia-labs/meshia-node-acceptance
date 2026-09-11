@@ -9,6 +9,7 @@ import time
 import uuid
 
 SSE_BODY = b'event: proof\ndata: meshia\n\n' * 12000
+FINITE_BODY = b'meshia-finite-body\n' * 65536
 WS_BODY = b'\x00\xffnative-app-echo'
 APP_EXIT_PHASES = {80: 'child_setup', 81: 'dependency_import', 82: 'personal_boundary',
                    83: 'mounted_write', 84: 'listener_setup', 85: 'server_running'}
@@ -39,6 +40,11 @@ try:
  checks.update(uid=os.getuid(), pid=os.getpid())
  def http(connection, request):
   if request.path == '/http': return connection.respond(200, json.dumps(checks))
+  if request.path == '/finite':
+   response = connection.respond(200, 'meshia-finite-body\n' * 65536)
+   del response.headers['Content-Type']
+   response.headers['Content-Type'] = 'application/octet-stream'
+   return response
   if request.path == '/not-modified':
    response = connection.respond(304, '')
    del response.headers['Content-Length']
@@ -138,17 +144,27 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         require(result['status'] == 200, 'App HTTP status failed')
         if path == '/sse':
             require(result['headers'].get('content-type') == 'text/event-stream', 'App SSE content type changed')
-        body = bytearray(base64.b64decode(result['body_base64'], validate=True))
+        read_bound = 262144 if path == '/sse' else 524288
+        require(result.get('max_read_bytes') == read_bound, 'App read negotiation changed')
+        body_bound = len(FINITE_BODY) if path == '/finite' else len(SSE_BODY)
+        initial = base64.b64decode(result['body_base64'], validate=True)
+        require(len(initial) <= 262144, 'App initial body exceeded its unchanged bound')
+        body = bytearray(initial)
         reads = 0
+        largest_read = 0
         while not result['eof']:
-            require(reads < 8 and len(body) <= len(SSE_BODY), 'App response exceeded its acceptance bound')
-            result = request(stream, 'read', sequence=result['next_sequence'], max_bytes=262144)
+            require(reads < 8 and len(body) <= body_bound, 'App response exceeded its acceptance bound')
+            result = request(stream, 'read', sequence=result['next_sequence'], max_bytes=read_bound)
             require(result['offset'] == len(body), 'App HTTP offset changed')
-            body.extend(base64.b64decode(result['body_base64'], validate=True))
+            chunk = base64.b64decode(result['body_base64'], validate=True)
+            require(len(chunk) <= read_bound, 'App HTTP chunk exceeded the negotiated bound')
+            body.extend(chunk)
+            largest_read = max(largest_read, len(chunk))
             reads += 1
+        require(len(body) <= body_bound, 'App response exceeded its acceptance bound')
         streams.remove((stream, 'close'))
         request(stream, 'close')
-        return bytes(body), reads
+        return bytes(body), reads, largest_read
     def metadata(method, path, status, length, *, headers=None, content_range=None):
         stream = str(uuid.uuid4())
         streams.append((stream, 'close'))
@@ -168,7 +184,7 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
                       launch_argv=[str(python), '-I', '-u', '-c', APP_SOURCE, mode, str(personal)], cwd='.')['app']
         require(app['status'] == 'ready', 'Native app did not become ready')
         phase = 'http'
-        raw, _ = http('/http')
+        raw, _, _ = http('/http')
         facts = json.loads(raw)
         require(set(facts) == {'uid', 'pid', 'read', 'write', 'stat'} and facts['uid'] == uid
                 and type(facts['pid']) is int and facts['pid'] > 0, 'App did not use the ordinary OS account')
@@ -182,8 +198,11 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
                  content_range='bytes 16-47/' + str(len(SSE_BODY)))
         phase = 'not_modified'
         metadata('GET', '/not-modified', 304, len(SSE_BODY))
+        phase = 'finite_body'
+        finite, finite_reads, largest_read = http('/finite')
+        require(finite == FINITE_BODY and finite_reads >= 1, 'App finite response bytes changed')
         phase = 'sse_body'
-        body, reads = http('/sse')
+        body, reads, _ = http('/sse')
         require(body == SSE_BODY and reads >= 1, 'App multi-chunk SSE body changed')
         phase = 'websocket'
         stream = str(uuid.uuid4())
@@ -207,6 +226,10 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         request(stream, 'ws_close', close_code=1000, close_reason='done')
         return {'mode': mode, 'http': True, 'head': True, 'range_head': True, 'not_modified': True,
                 'sse_body': True, 'sse_progressive_timing_tested': False,
+                'finite_body': True, 'negotiated_read_bytes': 524288,
+                'finite_response_bytes': len(finite), 'finite_read_count': finite_reads,
+                'largest_read_bytes': largest_read,
+                'finite_response_sha256': hashlib.sha256(finite).hexdigest(),
                 'response_bytes': len(body), 'response_sha256': hashlib.sha256(body).hexdigest(),
                 'websocket_binary': True, 'ordinary_uid': True, 'workspace_read_write': True,
                 'outside_access': 'allowed' if mode == 'full' else 'denied'}

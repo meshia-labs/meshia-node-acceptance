@@ -3168,11 +3168,15 @@ def _make_handler(plane: FakeControlPlane) -> type[BaseHTTPRequestHandler]:
             match = re.fullmatch(r"/__fabric-blocks/([A-Za-z0-9_-]{32,128})", self.path)
             if match:
                 try:
-                    status, body = plane.fabric_direct_get(match.group(1))
+                    if self.headers.get('Range') is not None and hasattr(plane, 'fabric_direct_range'):
+                        status, body, headers = plane.fabric_direct_range(match.group(1), self.headers['Range'])
+                    else:
+                        status, body = plane.fabric_direct_get(match.group(1))
+                        headers = {}
                 except Rejected as error:
                     self._send_rejected(error)
                     return
-                self._send_bytes(status, body)
+                self._send_bytes(status, body, headers)
                 return
             self._send(200, {"ok": True})
 

@@ -1,4 +1,11 @@
-# Meshia Node 1.3.26 macOS acceptance prerelease
+# Meshia Node macOS acceptance kit
+
+Preparation checkpoint: the new COW and negotiated-read checks below are not
+yet published or bound for hosted execution. The bundled artifact lock still
+pins the historical 1.3.26 release; the signed COW fixture was locally joined
+against the exact 1.3.27 wheel. Rebind to the final combined 1.3.28 release and
+add its legacy raw-SHA case before the next hosted dispatch. No fresh Mac27
+hosted result is claimed by this preparation commit.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It tests the already published 1.3.26 artifacts without changing Meshia's public installer channel.
@@ -21,6 +28,10 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   service; every installed Python module matches the exact wheel.
 - An actual native filesystem mount starts with empty generation zero and
   persists a mounted read/write round trip to a loopback Fabric fixture.
+  It then receives a cold 2 MiB tree-backed source through the signed namespace,
+  partially overwrites it, verifies untouched bytes, shrinks and regrows it,
+  fsyncs and checks both mounted readback and exact durable publication. The
+  fixture confirms no source bytes were downloaded before this workload.
 - Full compute uses the ordinary account and can read/write a personal canary.
 - An owner change to Workspace-only preserves workspace writes and loopback
   networking while denying outside read, write, stat and create.
@@ -30,6 +41,9 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   SSE body spanning multiple response chunks, and exact binary WebSocket echo.
   HEAD 200, ranged HEAD 206 and GET 304 must preserve their representation
   lengths while returning an empty body; ranged HEAD also preserves Content-Range.
+  A separate 1,179,648-byte finite response negotiates 512 KiB reads while its
+  initial response remains capped at 256 KiB. SSE retains 256 KiB reads. The
+  receipt records the actual largest finite chunk and exact response digest.
   Each app writes its mounted workspace; Full permits the disposable personal
   canary and Workspace-only denies its read, write and stat. Unregister must
   close the app port and its remembered kernel process identity. No native
@@ -74,13 +88,19 @@ reported instance, and expires supervision after 90 seconds. The app also has
 an independent 90-second exit timer. Ordinary commands cannot consume app
 claims. Both lanes retain signed request validation and completion receipts.
 The standalone v2 fixture adds authenticated empty snapshots, journal changes,
-file lookup, verified block reads and the bounded put/delete operations used
-here. It validates attachment/generation, object bytes, per-path predecessors
+file lookup, verified block reads, immutable file-version holds, bounded typed
+tree proofs and the put/delete operations used here. Its independent tree
+decoder is limited to 4 MiB files and two index levels. It validates
+attachment/generation, object bytes, per-path predecessors
 and exact replay identity using the same in-memory fixture storage. Unsupported
 namespace operations fail explicitly. Legacy missing manifests still fail;
 an empty v2 workspace is represented by sequence zero and no entries.
 The local regression runs the released wheel's real signed transport and sync
-coordinator through this empty state and the first file publication/readback.
+coordinator through this empty state and the first file publication/readback,
+then joins its actual mount backend and native journal to the cold tree edit.
+That local backend test creates no OS mount and makes no isolation claim; the
+hosted installed-service workload provides those separate facts. The cold base
+uses the current `sha256_tree_v1` identity, not every historical descriptor format.
 The only product implementation included is the already reviewed public
 distribution wheel, app and installer. No server, pod, source archive or
 internal contract tree is included.
@@ -91,7 +111,7 @@ Use Python 3.12+ with the wheel's pinned dependencies available:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python acceptance.py verify --directory /tmp/unused
-PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_kit
+PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_kit test_fixture_cow
 ```
 
 These commands check hashes, fixture authority, output filtering, cleanup

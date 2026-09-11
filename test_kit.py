@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import acceptance
 import app_acceptance
+import cow_acceptance
 import report
 
 # Import the verified distribution, never private checkout source.
@@ -25,6 +26,19 @@ acceptance.verify_release()
 sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.26-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
+    def test_cow_probe_bytes_on_plain_fixture_do_not_claim_native_mount(self):
+        # Validate the public workload itself; only hosted acceptance supplies
+        # the installed native mount and verifies durable Fabric publication.
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / cow_acceptance.PATH
+            source.write_bytes(cow_acceptance.BASE)
+            result = json.loads(subprocess.check_output([sys.executable, '-I', '-c',
+                cow_acceptance.PROBE, str(source)], timeout=10))
+            self.assertTrue(cow_acceptance.validate(result))
+            self.assertEqual(source.read_bytes(), cow_acceptance.expected_bytes())
+            self.assertEqual(report.public(result), result)
+            self.assertFalse(cow_acceptance.validate({**result, 'regrow_zero_fill': False}))
+
     def test_ca_progress_persists_exact_candidate_before_admission_failure(self):
         snapshots = []
         def enqueue(*args, **kwargs):
@@ -598,6 +612,9 @@ class AppFixture(unittest.TestCase):
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/sse', timeout=2) as response:
                     self.assertEqual(response.headers['Content-Type'], 'text/event-stream')
                     self.assertEqual(response.read(), app_acceptance.SSE_BODY)
+                with urllib.request.urlopen(f'http://127.0.0.1:{port}/finite', timeout=2) as response:
+                    self.assertEqual(response.headers['Content-Type'], 'application/octet-stream')
+                    self.assertEqual(response.read(), app_acceptance.FINITE_BODY)
                 import http.client
                 for method, path, headers, status, length in (
                     ('HEAD', '/sse', {}, 200, len(app_acceptance.SSE_BODY)),
@@ -634,7 +651,7 @@ class AppFixture(unittest.TestCase):
                     process.kill(); process.wait(timeout=3)
 
     def test_driver_uses_typed_lane_closes_streams_and_never_promotes_failed_cleanup(self):
-        for fail in (None, 'register', 'http', 'head', 'range_head', 'not_modified', 'websocket', 'cleanup'):
+        for fail in (None, 'register', 'http', 'head', 'range_head', 'not_modified', 'finite_body', 'websocket', 'cleanup'):
             with self.subTest(fail=fail), socket.socket() as reservation:
                 reservation.bind(('127.0.0.1', 0))
                 calls, states, reads = [], [], {}
@@ -667,14 +684,24 @@ class AppFixture(unittest.TestCase):
                             return response
                         body = (json.dumps({'uid': os.getuid(), 'pid': 123, 'read': 'denied',
                                             'write': 'denied', 'stat': 'denied'}).encode()
-                                if payload['path'] == '/http' else app_acceptance.SSE_BODY)
-                        reads[payload['stream_id']] = body[262144:]
+                                if payload['path'] == '/http' else app_acceptance.FINITE_BODY
+                                if payload['path'] == '/finite' else app_acceptance.SSE_BODY)
+                        reads[payload['stream_id']] = {'body': body, 'offset': min(262144, len(body)),
+                            'bound': 262144 if payload['path'] == '/sse' else 524288}
                         return {'status': 200, 'headers': {'content-type': 'text/event-stream'},
                                 'body_base64': base64.b64encode(body[:262144]).decode(),
-                                'eof': len(body) <= 262144, 'next_sequence': 1}
+                                'eof': len(body) <= 262144, 'next_sequence': 1,
+                                'max_read_bytes': 262144 if payload['path'] == '/sse' or
+                                    (payload['path'] == '/finite' and fail == 'finite_body') else 524288}
                     if operation == 'read':
-                        return {'offset': 262144, 'body_base64': base64.b64encode(reads[payload['stream_id']]).decode(),
-                                'eof': True, 'next_sequence': 2}
+                        entry = reads[payload['stream_id']]
+                        self.assertEqual(payload['max_bytes'], entry['bound'])
+                        offset = entry['offset']
+                        chunk = entry['body'][offset:offset + payload['max_bytes']]
+                        entry['offset'] += len(chunk)
+                        return {'offset': offset, 'body_base64': base64.b64encode(chunk).decode(),
+                                'eof': entry['offset'] == len(entry['body']),
+                                'next_sequence': payload['sequence'] + 1}
                     if operation == 'ws_open' and fail == 'websocket':
                         raise AssertionError('fixture WS')
                     if operation == 'ws_read':
@@ -692,6 +719,10 @@ class AppFixture(unittest.TestCase):
                     self.assertTrue(all(report.public(result)[key] for key in ('head', 'range_head', 'not_modified')))
                     self.assertFalse(result['sse_progressive_timing_tested'])
                     self.assertEqual(result['outside_access'], 'denied')
+                    self.assertTrue(result['finite_body'])
+                    self.assertEqual(result['negotiated_read_bytes'], 524288)
+                    self.assertEqual(result['largest_read_bytes'], 524288)
+                    self.assertEqual(report.public(result)['finite_response_bytes'], len(app_acceptance.FINITE_BODY))
                 else:
                     with self.assertRaises(AssertionError): run()
                 self.assertEqual(calls[-1][1]['operation'], 'unregister_lab_app')
@@ -700,7 +731,7 @@ class AppFixture(unittest.TestCase):
                 self.assertEqual(states[-1]['owned_process_stopped'], fail != 'cleanup')
                 if fail == 'http': self.assertTrue(any(p['operation'] == 'close' for _, p in calls))
                 if fail == 'websocket': self.assertTrue(any(p['operation'] == 'ws_close' for _, p in calls))
-                if fail in ('register', 'http', 'head', 'range_head', 'not_modified', 'websocket'):
+                if fail in ('register', 'http', 'head', 'range_head', 'not_modified', 'finite_body', 'websocket'):
                     self.assertTrue(any(state['phase'] == fail and state['status'] == 'failed' for state in states))
 
     def test_app_failure_receipt_accepts_only_public_fixed_error_code(self):
