@@ -23,6 +23,71 @@ acceptance.verify_release()
 sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.19-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
+    def test_ca_progress_persists_exact_candidate_before_admission_failure(self):
+        snapshots = []
+        def enqueue(*args, **kwargs):
+            name = snapshots[-1][-1]['name']
+            self.assertEqual(snapshots[-1][-1]['status'], 'running')
+            if name == 'homebrew_arm64':
+                raise AssertionError('fixture startup failed')
+            return name
+        with patch.object(Path, 'is_file', return_value=True), self.assertRaisesRegex(AssertionError, 'fixture startup'):
+            acceptance.limited_public_ca_stores(enqueue, lambda _: {'ca_certificates': 123},
+                Path('/fixture/managed'), on_progress=snapshots.append)
+        self.assertEqual(snapshots[0], [{'name': 'managed', 'present': True, 'status': 'running'}])
+        self.assertEqual(snapshots[-1][0]['status'], 'succeeded')
+        self.assertEqual(snapshots[-1][-1],
+                         {'name': 'homebrew_arm64', 'present': True, 'status': 'running'})
+        self.assertEqual(report.public({'public_ca_stores': snapshots[-1]})['public_ca_stores'], snapshots[-1])
+
+    def test_native_completion_diagnostics_only_keep_fixed_public_reasons_and_types(self):
+        reason = 'macOS did not isolate command ownership'
+        output = ('Native command startup failed: ' + reason + ' private-sentinel\n'
+                  'Meshia Node verification failed or timed out: private-sentinel\n'
+                  'macOS native workspace boundary could not start: private-sentinel\n'
+                  'PermissionError: [Errno 13] private-sentinel\n').encode()
+        completion = {'result': {'output_base64': base64.b64encode(output).decode(),
+            'message': 'private-sentinel', 'error_code': 'LOCAL_ACCESS_REFUSED', 'timed_out': False,
+            'truncated': False, 'started_at': '2026-09-11T02:30:00Z', 'finished_at': '2026-09-11T02:30:10.123Z'}}
+        value = acceptance.native_completion_diagnostics(completion)
+        self.assertEqual(value['known_errors'], [reason])
+        self.assertEqual(value['exception_types'], ['PermissionError'])
+        self.assertTrue(value['native_startup_failed'])
+        self.assertTrue(value['native_host_verification_failed'])
+        self.assertTrue(value['workspace_boundary_start_failed'])
+        self.assertFalse(value['truncated'])
+        self.assertEqual(value['elapsed_seconds'], 10.123)
+        self.assertEqual(value['errno'], 13)
+        self.assertFalse(value['timed_out'])
+        self.assertEqual(value['error_code'], 'LOCAL_ACCESS_REFUSED')
+        self.assertNotIn('private-sentinel', json.dumps(report.public({'diagnostics': value})))
+        for encoded in ('not base64', 'x' * 24001, None):
+            with self.subTest(encoded_type=type(encoded).__name__):
+                value = acceptance.native_completion_diagnostics({'result': {
+                    'output_base64': encoded, 'timed_out': 'private-sentinel', 'error_code': 'private-sentinel'}})
+                self.assertFalse(value['output_valid'])
+                self.assertEqual(value['output_bytes'], 0)
+                self.assertNotIn('timed_out', value)
+                self.assertNotIn('error_code', value)
+        value = acceptance.native_completion_diagnostics({'result': {
+            'output_base64': '', 'timed_out': True,
+            'message': 'The command exceeded its timeout and its process session was stopped.'}})
+        self.assertTrue(value['timed_out'])
+        self.assertEqual(len(value['known_errors']), 1)
+
+    def test_failed_completion_retains_only_exact_bounded_ca_probe_result(self):
+        for payload, expected in (({'ca_certificates': 123}, True),
+                                  ({'ca_certificates': 0}, False),
+                                  ({'ca_certificates': True}, False),
+                                  ({'ca_certificates': 123, 'private': 'private-sentinel'}, False)):
+            with self.subTest(expected=expected):
+                output = (json.dumps(payload) + '\nNative command startup failed: private-sentinel\n').encode()
+                value = acceptance.native_completion_diagnostics({'result': {
+                    'exit_code': 70, 'output_base64': base64.b64encode(output).decode()}})
+                self.assertEqual(value['ca_probe_completed'], expected)
+                self.assertEqual(value.get('ca_certificates'), 123 if expected else None)
+                self.assertNotIn('private-sentinel', json.dumps(report.public({'diagnostics': value})))
+
     def test_public_ca_probe_loads_real_default_store_and_rejects_empty_store(self):
         result = subprocess.run([sys.executable, '-I', '-c', acceptance.PUBLIC_CA_PROBE],
                                 capture_output=True, timeout=10)

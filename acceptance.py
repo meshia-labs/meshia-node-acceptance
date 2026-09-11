@@ -63,23 +63,97 @@ def require(condition, message):
     if not condition:
         raise AssertionError(message)
 
-def limited_public_ca_stores(enqueue, complete, managed_python):
+def limited_public_ca_stores(enqueue, complete, managed_python, *, on_progress=None):
     # Run through the signed Limited command lane, never the fixture process.
     # Optional Homebrew discovery is read-only and installs nothing.
     candidates = [('managed', managed_python),
                   ('homebrew_arm64', Path('/opt/homebrew/bin/python3.14')),
                   ('homebrew_intel', Path('/usr/local/bin/python3.14'))]
     stores = []
+    def progress():
+        if on_progress is not None:
+            on_progress([dict(store) for store in stores])
     for name, executable in candidates:
         if name != 'managed' and not executable.is_file():
             stores.append({'name': name, 'present': False})
+            progress()
             continue
+        store = {'name': name, 'present': True, 'status': 'running'}
+        stores.append(store)
+        progress()  # Preserve the exact fixed candidate before admission.
         result = complete(enqueue(PUBLIC_CA_PROBE, executable=executable, timeout=10))
         count = result.get('ca_certificates')
         require(type(count) is int and 0 < count <= 100000,
                 'Limited interpreter did not load its default public CA store')
-        stores.append({'name': name, 'present': True, 'passed': True, 'ca_certificates': count})
+        store.update(status='succeeded', passed=True, ca_certificates=count)
+        progress()
     return stores
+
+def native_completion_diagnostics(completion):
+    # Match only fixed public literals from the exact distributed implementation.
+    # Never publish raw completion output, exception bodies, argv or paths.
+    result = completion.get('result') or {}
+    encoded = result.get('output_base64', '')
+    output = b''
+    valid = isinstance(encoded, str) and len(encoded) <= 24000
+    if valid:
+        try:
+            output = base64.b64decode(encoded, validate=True)
+            valid = len(output) <= 16384
+        except ValueError:
+            valid = False
+    if not valid:
+        output = b''
+    ca_counts = []
+    for line in output.decode(errors='replace').splitlines():
+        try:
+            probe = json.loads(line)
+        except ValueError:
+            continue
+        if (isinstance(probe, dict) and set(probe) == {'ca_certificates'}
+                and type(probe['ca_certificates']) is int and 0 < probe['ca_certificates'] <= 100000):
+            ca_counts.append(probe['ca_certificates'])
+    message = result.get('message', '')
+    text = output.decode(errors='replace') + '\n' + (message[:4096] if isinstance(message, str) else '')
+    fixed = ['Default public CA store is empty',
+             'The command exceeded its timeout and its process session was stopped.']
+    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.19-py3-none-any.whl') as archive:
+        for module in ('native_command', 'macos_native', 'native_execution', 'workspace'):
+            source = archive.read('meshia_node/' + module + '.py').decode()
+            fixed.extend(re.findall(r'raise [A-Za-z_]\w*\("([^"$\n]{8,240})"\)', source))
+    known = sorted((item for item in dict.fromkeys(fixed) if item in text), key=text.rfind)
+    diagnostics = {'output_valid': valid, 'output_bytes': len(output),
+                   'ca_probe_completed': len(ca_counts) == 1,
+                   'native_startup_failed': 'Native command startup failed:' in text,
+                   'native_host_verification_failed': 'Meshia Node verification failed or timed out:' in text,
+                   'workspace_boundary_start_failed': 'macOS native workspace boundary could not start:' in text,
+                   'known_errors': known[-8:],
+                   'exception_types': [name for name in ('OwnershipUnavailable', 'AccessRefused',
+                       'UnsafePath', 'PermissionError', 'FileNotFoundError', 'TimeoutError',
+                       'OSError', 'AssertionError', 'RuntimeError')
+                       if re.search(r'\b' + name + ':', text)]}
+    if len(ca_counts) == 1:
+        diagnostics['ca_certificates'] = ca_counts[0]
+    if type(result.get('timed_out')) is bool:
+        diagnostics['timed_out'] = result['timed_out']
+    if type(result.get('truncated')) is bool:
+        diagnostics['truncated'] = result['truncated']
+    try:
+        started = datetime.fromisoformat(result.get('started_at', '').replace('Z', '+00:00'))
+        finished = datetime.fromisoformat(result.get('finished_at', '').replace('Z', '+00:00'))
+        elapsed = (finished - started).total_seconds()
+        if 0 <= elapsed <= 7200:
+            diagnostics['elapsed_seconds'] = round(elapsed, 3)
+    except (AttributeError, TypeError, ValueError):
+        pass
+    codes = {'LOCAL_TASK_REJECTED', 'LOCAL_ACCESS_REFUSED', 'UNSAFE_PATH', 'INVALID_TASK',
+             'MESHIA_NODE_ERROR', 'OWNERSHIP_UNAVAILABLE', 'COMMAND_TIMEOUT'}
+    if isinstance(result.get('error_code'), str) and result['error_code'] in codes:
+        diagnostics['error_code'] = result['error_code']
+    match = re.search(r'\[Errno ([0-9]{1,3})\]', text)
+    if match:
+        diagnostics['errno'] = int(match.group(1))
+    return diagnostics
 
 def gatekeeper_status():
     status = run(["/usr/sbin/spctl", "--status"]).decode().strip()
@@ -479,6 +553,8 @@ def acceptance(directory):
         value = wait("command completion", lambda: plane.completions.get(command_id), 55)
         receipt["last_command"] = {"status": value.get("status"), "error_code": value.get("error_code"),
                                    "exit_code": value.get("result", {}).get("exit_code")}
+        if value.get('status') != 'succeeded' or value.get('result', {}).get('exit_code') != 0:
+            receipt['last_command']['diagnostics'] = native_completion_diagnostics(value)
         require(value.get("status") == "succeeded" and value.get("result", {}).get("exit_code") == 0,
                 "Native queued command failed")
         return json.loads(base64.b64decode(value["result"]["output_base64"]))
@@ -587,7 +663,11 @@ print(json.dumps(checks))
         wait("limited publication", lambda: plane.fabric_files.get("mac-limited.txt") == b"computed", 90)
         record("limited_native_compute", **limited, workspace_read_write=True, networking=True)
         phase = "limited_public_ca_store"
-        record("limited_public_ca_store", stores=limited_public_ca_stores(enqueue, complete, python))
+        def ca_progress(stores):
+            receipt['public_ca_stores'] = stores
+            write_json(directory / 'receipt.json', receipt)
+        record("limited_public_ca_store", stores=limited_public_ca_stores(
+            enqueue, complete, python, on_progress=ca_progress))
         phase = "detached_cancel"
         command_started = time.monotonic()
         command_id = enqueue("""import os,pathlib,time
