@@ -39,8 +39,19 @@ try:
  checks.update(uid=os.getuid(), pid=os.getpid())
  def http(connection, request):
   if request.path == '/http': return connection.respond(200, json.dumps(checks))
+  if request.path == '/not-modified':
+   response = connection.respond(304, '')
+   del response.headers['Content-Length']
+   response.headers['Content-Length'] = str(len('event: proof\ndata: meshia\n\n' * 12000))
+   return response
   if request.path == '/sse':
-   response = connection.respond(200, 'event: proof\ndata: meshia\n\n' * 12000)
+   body = 'event: proof\ndata: meshia\n\n' * 12000
+   partial = request.headers.get('Range') == 'bytes=16-47'
+   selected = body[16:48] if partial else body
+   response = connection.respond(206 if partial else 200, '' if request.method == 'HEAD' else selected)
+   del response.headers['Content-Length']
+   response.headers['Content-Length'] = str(len(selected))
+   if partial: response.headers['Content-Range'] = 'bytes 16-47/' + str(len(body))
    del response.headers['Content-Type']
    response.headers['Content-Type'] = 'text/event-stream'
    return response
@@ -138,6 +149,18 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         streams.remove((stream, 'close'))
         request(stream, 'close')
         return bytes(body), reads
+    def metadata(method, path, status, length, *, headers=None, content_range=None):
+        stream = str(uuid.uuid4())
+        streams.append((stream, 'close'))
+        result = request(stream, 'open', method=method, path=path, query='',
+                         headers=headers or {}, body_base64='')
+        require(result['status'] == status, 'App metadata status changed')
+        require(result['headers'].get('content-length') == str(length), 'App representation length changed')
+        require(result['headers'].get('content-range') == content_range, 'App metadata range changed')
+        require(result['eof'] is True and result['body_base64'] == '' and result['next_offset'] == 0,
+                'App metadata response unexpectedly carried a body')
+        streams.remove((stream, 'close'))
+        request(stream, 'close')
     try:
         lease = control('reserve_lab_app_port')['lease']
         phase = 'register'
@@ -152,6 +175,13 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         require(all(facts[key] == ('allowed' if mode == 'full' else 'denied')
                     for key in ('read', 'write', 'stat')), 'App filesystem boundary failed')
         identity = remember(facts['pid'])
+        phase = 'head'
+        metadata('HEAD', '/sse', 200, len(SSE_BODY))
+        phase = 'range_head'
+        metadata('HEAD', '/sse', 206, 32, headers={'range': 'bytes=16-47'},
+                 content_range='bytes 16-47/' + str(len(SSE_BODY)))
+        phase = 'not_modified'
+        metadata('GET', '/not-modified', 304, len(SSE_BODY))
         phase = 'sse_body'
         body, reads = http('/sse')
         require(body == SSE_BODY and reads >= 1, 'App multi-chunk SSE body changed')
@@ -175,7 +205,8 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         require(bytes(echoed) == WS_BODY and chunk['end_of_message'], 'App WebSocket echo changed')
         streams.remove((stream, 'ws_close'))
         request(stream, 'ws_close', close_code=1000, close_reason='done')
-        return {'mode': mode, 'http': True, 'sse_body': True, 'sse_progressive_timing_tested': False,
+        return {'mode': mode, 'http': True, 'head': True, 'range_head': True, 'not_modified': True,
+                'sse_body': True, 'sse_progressive_timing_tested': False,
                 'response_bytes': len(body), 'response_sha256': hashlib.sha256(body).hexdigest(),
                 'websocket_binary': True, 'ordinary_uid': True, 'workspace_read_write': True,
                 'outside_access': 'allowed' if mode == 'full' else 'denied'}

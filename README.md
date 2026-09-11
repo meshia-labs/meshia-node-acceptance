@@ -28,6 +28,8 @@ Apple developer login, cloud provider, or Meshia backend is needed.
   app commands, reserves a port and launches a real app through its unchanged
   `NativeApps` and `AppProcessOwner`. The same owned port serves HTTP, a finite
   SSE body spanning multiple response chunks, and exact binary WebSocket echo.
+  HEAD 200, ranged HEAD 206 and GET 304 must preserve their representation
+  lengths while returning an empty body; ranged HEAD also preserves Content-Range.
   Each app writes its mounted workspace; Full permits the disposable personal
   canary and Workspace-only denies its read, write and stat. Unregister must
   close the app port and its remembered kernel process identity. No native

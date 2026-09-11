@@ -22,6 +22,7 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'mounted', 'state', 'workspace_execution', 'present', 'ready',
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
+SAFE_KEYS.update(('head', 'range_head', 'not_modified'))
 ARTIFACT_NAMES = {'meshia_node-1.3.25-py3-none-any.whl', 'MeshiaNode-1.3.25.app.zip', 'install-1.3.25.sh'}
 
 def public(value, *, depth=0):

@@ -598,6 +598,29 @@ class AppFixture(unittest.TestCase):
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/sse', timeout=2) as response:
                     self.assertEqual(response.headers['Content-Type'], 'text/event-stream')
                     self.assertEqual(response.read(), app_acceptance.SSE_BODY)
+                import http.client
+                for method, path, headers, status, length in (
+                    ('HEAD', '/sse', {}, 200, len(app_acceptance.SSE_BODY)),
+                    ('HEAD', '/sse', {'Range': 'bytes=16-47'}, 206, 32),
+                    ('GET', '/not-modified', {}, 304, len(app_acceptance.SSE_BODY)),
+                ):
+                    with self.subTest(method=method, status=status):
+                        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
+                        try:
+                            connection.request(method, path, headers=headers)
+                            response = connection.getresponse()
+                            self.assertEqual(response.status, status)
+                            self.assertEqual(response.getheader('Content-Length'), str(length))
+                            self.assertEqual(response.read(), b'')
+                            if status == 206:
+                                self.assertEqual(response.getheader('Content-Range'),
+                                                 'bytes 16-47/' + str(len(app_acceptance.SSE_BODY)))
+                        finally:
+                            connection.close()
+                request = urllib.request.Request(f'http://127.0.0.1:{port}/sse', headers={'Range': 'bytes=16-47'})
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 206)
+                    self.assertEqual(response.read(), app_acceptance.SSE_BODY[16:48])
                 with connect(f'ws://127.0.0.1:{port}/ws', open_timeout=2, close_timeout=1) as connection:
                     connection.send(app_acceptance.WS_BODY)
                     self.assertEqual(connection.recv(timeout=2), app_acceptance.WS_BODY)
@@ -611,7 +634,7 @@ class AppFixture(unittest.TestCase):
                     process.kill(); process.wait(timeout=3)
 
     def test_driver_uses_typed_lane_closes_streams_and_never_promotes_failed_cleanup(self):
-        for fail in (None, 'register', 'http', 'websocket', 'cleanup'):
+        for fail in (None, 'register', 'http', 'head', 'range_head', 'not_modified', 'websocket', 'cleanup'):
             with self.subTest(fail=fail), socket.socket() as reservation:
                 reservation.bind(('127.0.0.1', 0))
                 calls, states, reads = [], [], {}
@@ -629,6 +652,19 @@ class AppFixture(unittest.TestCase):
                         return {'cleanup': {'owned_process_stopped': fail != 'cleanup'}}
                     if operation == 'open':
                         if fail == 'http': raise AssertionError('fixture HTTP')
+                        if payload['method'] == 'HEAD' or payload['path'] == '/not-modified':
+                            ranged = bool(payload['headers'].get('range'))
+                            stage = 'not_modified' if payload['path'] == '/not-modified' else 'range_head' if ranged else 'head'
+                            response = {'status': 304 if stage == 'not_modified' else 206 if ranged else 200,
+                                'headers': {'content-length': str(32 if ranged else len(app_acceptance.SSE_BODY))},
+                                'eof': True, 'body_base64': '', 'next_offset': 0}
+                            if ranged:
+                                response['headers']['content-range'] = 'bytes 16-47/' + str(len(app_acceptance.SSE_BODY))
+                            if fail == stage:
+                                if stage == 'head': del response['headers']['content-length']
+                                elif stage == 'range_head': response['headers']['content-range'] = 'bytes 16-48/999'
+                                else: response['body_base64'] = 'eA=='
+                            return response
                         body = (json.dumps({'uid': os.getuid(), 'pid': 123, 'read': 'denied',
                                             'write': 'denied', 'stat': 'denied'}).encode()
                                 if payload['path'] == '/http' else app_acceptance.SSE_BODY)
@@ -652,6 +688,8 @@ class AppFixture(unittest.TestCase):
                 if fail is None:
                     result = run()
                     self.assertTrue(result['http'] and result['sse_body'] and result['websocket_binary'])
+                    self.assertTrue(all(result[key] for key in ('head', 'range_head', 'not_modified')))
+                    self.assertTrue(all(report.public(result)[key] for key in ('head', 'range_head', 'not_modified')))
                     self.assertFalse(result['sse_progressive_timing_tested'])
                     self.assertEqual(result['outside_access'], 'denied')
                 else:
@@ -662,7 +700,7 @@ class AppFixture(unittest.TestCase):
                 self.assertEqual(states[-1]['owned_process_stopped'], fail != 'cleanup')
                 if fail == 'http': self.assertTrue(any(p['operation'] == 'close' for _, p in calls))
                 if fail == 'websocket': self.assertTrue(any(p['operation'] == 'ws_close' for _, p in calls))
-                if fail in ('register', 'http', 'websocket'):
+                if fail in ('register', 'http', 'head', 'range_head', 'not_modified', 'websocket'):
                     self.assertTrue(any(state['phase'] == fail and state['status'] == 'failed' for state in states))
 
     def test_app_failure_receipt_accepts_only_public_fixed_error_code(self):
