@@ -1,45 +1,61 @@
 """Small same-port app fixture driven only through the installed signed app lane."""
 import base64
+from datetime import datetime
 import hashlib
 import json
+import re
 import socket
 import time
 import uuid
 
 SSE_BODY = b'event: proof\ndata: meshia\n\n' * 12000
 WS_BODY = b'\x00\xffnative-app-echo'
+APP_EXIT_PHASES = {80: 'child_setup', 81: 'dependency_import', 82: 'personal_boundary',
+                   83: 'mounted_write', 84: 'listener_setup', 85: 'server_running'}
 APP_SOURCE = r'''
-import json, logging, os, sys, threading
-from pathlib import Path
-from websockets.sync.server import serve
-logging.disable(logging.CRITICAL)
-mode, personal = sys.argv[1:]
-personal = Path(personal)
-checks = {}
-for name, operation in (('read', lambda: personal.read_text()),
-                        ('write', lambda: personal.write_text('full')),
-                        ('stat', personal.stat)):
- try:
-  operation(); checks[name] = 'allowed'
- except (PermissionError, FileNotFoundError): checks[name] = 'denied'
-expected = 'allowed' if mode == 'full' else 'denied'
-assert all(value == expected for value in checks.values()), 'App filesystem boundary failed'
-with Path('mac-app-' + mode + '.txt').open('w') as result:
- result.write('app-compute-' + mode); result.flush(); os.fsync(result.fileno())
-checks.update(uid=os.getuid(), pid=os.getpid())
-def http(connection, request):
- if request.path == '/http': return connection.respond(200, json.dumps(checks))
- if request.path == '/sse':
-  response = connection.respond(200, 'event: proof\ndata: meshia\n\n' * 12000)
-  del response.headers['Content-Type']
-  response.headers['Content-Type'] = 'text/event-stream'
-  return response
-def echo(ws):
- for message in ws: ws.send(message)
-timer = threading.Timer(90, lambda: os._exit(0)); timer.daemon = True; timer.start()
-with serve(echo, '127.0.0.1', int(os.environ['PORT']), process_request=http,
-           compression=None, ping_interval=None, close_timeout=.2, max_size=1024) as server:
- server.serve_forever()
+stage = 80
+try:
+ import json, logging, os, sys, threading
+ from pathlib import Path
+ stage = 81
+ from websockets.sync.server import serve
+ logging.disable(logging.CRITICAL)
+ stage = 80
+ mode, personal = sys.argv[1:]
+ personal = Path(personal)
+ checks = {}
+ stage = 82
+ for name, operation in (('read', lambda: personal.read_text()),
+                         ('write', lambda: personal.write_text('full')),
+                         ('stat', personal.stat)):
+  try:
+   operation(); checks[name] = 'allowed'
+  except (PermissionError, FileNotFoundError): checks[name] = 'denied'
+ expected = 'allowed' if mode == 'full' else 'denied'
+ assert all(value == expected for value in checks.values()), 'App filesystem boundary failed'
+ stage = 83
+ with Path('mac-app-' + mode + '.txt').open('w') as result:
+  result.write('app-compute-' + mode); result.flush(); os.fsync(result.fileno())
+ checks.update(uid=os.getuid(), pid=os.getpid())
+ def http(connection, request):
+  if request.path == '/http': return connection.respond(200, json.dumps(checks))
+  if request.path == '/sse':
+   response = connection.respond(200, 'event: proof\ndata: meshia\n\n' * 12000)
+   del response.headers['Content-Type']
+   response.headers['Content-Type'] = 'text/event-stream'
+   return response
+ def echo(ws):
+  for message in ws: ws.send(message)
+ timer = threading.Timer(90, lambda: os._exit(0)); timer.daemon = True; timer.start()
+ stage = 84
+ with serve(echo, '127.0.0.1', int(os.environ['PORT']), process_request=http,
+            compression=None, ping_interval=None, close_timeout=.2, max_size=1024) as server:
+  stage = 85
+  server.serve_forever()
+except Exception:
+ # Fixed fixture-only exit stages survive the installed service's safe
+ # startup result without emitting workload output, paths or tracebacks.
+ raise SystemExit(stage) from None
 '''
 
 
@@ -50,6 +66,40 @@ def require(value, message):
 
 def app_error_code(code, allowed):
     return code if isinstance(code, str) and code in allowed else 'unclassified'
+
+
+def app_completion_diagnostics(completion):
+    """Retain exact installed-service literals; never return raw messages."""
+    result = completion.get('result')
+    if not isinstance(result, dict):
+        return {}
+    safe = {}
+    try:
+        elapsed = (datetime.fromisoformat(result['finished_at'].replace('Z', '+00:00'))
+                   - datetime.fromisoformat(result['started_at'].replace('Z', '+00:00'))).total_seconds()
+        if 0 <= elapsed <= 120:
+            safe['elapsed_seconds'] = round(elapsed, 3)
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+        pass
+    message = result.get('message')
+    if completion.get('error_code') != 'APP_START_FAILED' or not isinstance(message, str) or len(message) > 200:
+        return safe
+    matched = re.fullmatch(r'App exited before opening its owned port\. \((exit code -?\d{1,10}|'
+                          r'COMMAND_EXITED|STATE_ERROR|INVALID_TASK|UNSAFE_PATH|LOCAL_ACCESS_REFUSED|'
+                          r'LOCAL_TIER_REFUSED|DISCONNECTED|WORKSPACE_ADOPTION_REQUIRED|'
+                          r'WORKSPACE_CLAIM_INVALID|NETWORK_UNAVAILABLE|OS_ERROR|INTERNAL_ERROR)\)', message)
+    if matched is None:
+        return safe
+    reason = matched[1]
+    if reason.startswith('exit code '):
+        code = int(reason[10:])
+        if -(2**31) <= code < 2**32:
+            safe['exit_code'] = code
+            if code in APP_EXIT_PHASES:
+                safe['phase'] = APP_EXIT_PHASES[code]
+    else:
+        safe['reason'] = reason
+    return safe
 
 
 def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progress):

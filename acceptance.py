@@ -566,7 +566,7 @@ def acceptance(directory):
         return json.loads(base64.b64decode(value["result"]["output_base64"]))
 
     def native_app(mode):
-        from app_acceptance import app_error_code, exercise_app
+        from app_acceptance import app_completion_diagnostics, app_error_code, exercise_app
         with zipfile.ZipFile(directory / manifest['package']) as archive:
             codes = set()
             for module in ('native_apps', 'native_app_http', 'native_app_websocket', 'app_process'):
@@ -583,7 +583,8 @@ def acceptance(directory):
             timeout = 15 if payload['operation'] in ('close', 'ws_close', 'unregister_lab_app') else 35
             result = wait('native app command completion', lambda: plane.completions.get(command_id), timeout)
             if result.get('status') != 'succeeded':
-                failure = {**state, 'status': 'failed', 'error_code': app_error_code(result.get('error_code'), codes)}
+                failure = {**state, 'status': 'failed', 'error_code': app_error_code(result.get('error_code'), codes),
+                           'diagnostics': app_completion_diagnostics(result)}
                 receipt.setdefault('native_app_failure', failure)
                 write_json(directory / 'receipt.json', receipt)
                 raise AssertionError('Native app request failed')

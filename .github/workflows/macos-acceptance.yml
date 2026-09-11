@@ -1,6 +1,12 @@
 name: Exact notarized macOS acceptance
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Hosted Mac architecture to exercise
+        type: choice
+        default: both
+        options: [both, macos-15, macos-15-intel]
 permissions:
   contents: read
 concurrency:
@@ -13,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel]
+        runner: ${{ fromJSON(inputs.runner == 'macos-15-intel' && '["macos-15-intel"]' || inputs.runner == 'macos-15' && '["macos-15"]' || '["macos-15", "macos-15-intel"]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     env:

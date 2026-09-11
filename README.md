@@ -12,7 +12,7 @@ Apple developer login, cloud provider, or Meshia backend is needed.
 ## What the hosted job proves
 
 - A fresh, non-root GitHub-hosted `runner` account with a GUI launchd domain.
-- Both standard runners (`macos-15` ARM64 and `macos-15-intel` x64) execute
+- By default both standard runners (`macos-15` ARM64 and `macos-15-intel` x64) execute
   independently, with the actual architecture recorded from `uname -m`.
 - The exact signed app passes codesign, stapled-ticket and Gatekeeper checks.
   Assessments must remain enabled before and after assessment; disabled policy
@@ -112,6 +112,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    inventory. The default branch must contain this workflow before dispatch.
 3. Tag the reviewed kit commit `v1.3.25-acceptance.1`, then dispatch
    `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.25-acceptance.1`
+   For an authorized focused diagnosis on a fresh reviewed tag, add
+   `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`

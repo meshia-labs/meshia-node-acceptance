@@ -521,6 +521,55 @@ class FixtureAuthority(unittest.TestCase):
         self.assertEqual(host.generation, 2)
 
 class AppFixture(unittest.TestCase):
+    def test_real_fixture_startup_failures_have_safe_distinct_exit_stages(self):
+        # Ordinary temporary subprocesses prove diagnostic stages only, not
+        # installed native ownership or Workspace-only isolation.
+        for phase in ('child_setup', 'dependency_import', 'personal_boundary', 'mounted_write', 'listener_setup'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as name, socket.socket() as listener:
+                root = Path(name)
+                private = root / 'private-sentinel'
+                private.write_text('full')
+                listener.bind(('127.0.0.1', 0)); listener.listen()
+                argv = [sys.executable, '-I'] + (['-S'] if phase == 'dependency_import' else [])
+                argv += ['-c', app_acceptance.APP_SOURCE]
+                if phase != 'child_setup':
+                    argv += ['limited' if phase == 'personal_boundary' else 'full', str(private)]
+                if phase == 'mounted_write':
+                    (root / 'mac-app-full.txt').mkdir()
+                result = subprocess.run(argv, cwd=root,
+                    env={**os.environ, 'PORT': str(listener.getsockname()[1])}, capture_output=True, timeout=10)
+                self.assertEqual(app_acceptance.APP_EXIT_PHASES.get(result.returncode), phase)
+                self.assertEqual(result.stdout, b'')
+                self.assertEqual(result.stderr, b'')
+
+    def test_app_startup_diagnostics_accept_only_exact_service_literals(self):
+        def completion(message, code='APP_START_FAILED'):
+            return {'error_code': code, 'result': {'message': message,
+                'started_at': '2026-09-11T12:00:00Z', 'finished_at': '2026-09-11T12:00:03.125Z'}}
+        for exit_code in (70, 80, 81, 82, 83, 84, 85, -9):
+            with self.subTest(exit_code=exit_code):
+                message = f'App exited before opening its owned port. (exit code {exit_code})'
+                safe = app_acceptance.app_completion_diagnostics(completion(message))
+                self.assertEqual(safe['exit_code'], exit_code)
+                self.assertEqual(safe.get('phase'), app_acceptance.APP_EXIT_PHASES.get(exit_code))
+                self.assertEqual(safe['elapsed_seconds'], 3.125)
+                self.assertEqual(report.public({'diagnostics': safe})['diagnostics'], safe)
+        safe = app_acceptance.app_completion_diagnostics(completion(
+            'App exited before opening its owned port. (LOCAL_ACCESS_REFUSED)'))
+        self.assertEqual(safe, {'reason': 'LOCAL_ACCESS_REFUSED', 'elapsed_seconds': 3.125})
+        for message in ('private-sentinel', 'App exited before opening its owned port. (private-sentinel)',
+                        'App exited before opening its owned port. (exit code 83) private-sentinel',
+                        'App exited before opening its owned port. (exit code 4294967296)',
+                        'App exited before opening its owned port. (exit code -2147483649)',
+                        None, [], 'x' * 201):
+            with self.subTest(message_type=type(message).__name__):
+                safe = app_acceptance.app_completion_diagnostics(completion(message))
+                self.assertEqual(safe, {'elapsed_seconds': 3.125})
+                self.assertNotIn('private-sentinel', json.dumps(report.public({'diagnostics': safe})))
+        safe = app_acceptance.app_completion_diagnostics(completion(
+            'App exited before opening its owned port. (exit code 83)', 'APP_OPERATION_FAILED'))
+        self.assertEqual(safe, {'elapsed_seconds': 3.125})
+
     def test_fixture_server_same_port_http_sse_and_websocket_without_native_claim(self):
         # This proves fixture bytes and the already-installed websockets API,
         # not native ownership or Limited isolation. Hosted acceptance must
