@@ -104,12 +104,11 @@ class FabricV2Fixture:
                     raise Rejected(409, 'FABRIC_MUTATION_IDEMPOTENCY_CONFLICT')
                 return 200, copy.deepcopy(result)
             if payload.get('request_digest') is not None:
+                # Production validates this caller-owned replay identity, not
+                # one universal hash envelope. Released directory publishers
+                # hash their op array; file cohorts include schema/session.
+                # Exact-payload replay above and content checks below remain.
                 self._raw_digest(payload['request_digest'])
-                canonical = {'schema': 'meshiafabric.fabric_v2_commit_request.v1', 'session_id': host.session_id, 'ops': ops}
-                expected = hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True,
-                                                     separators=(',', ':'), allow_nan=False).encode()).hexdigest()
-                if payload['request_digest'] != expected:
-                    raise Rejected(400, 'FABRIC_DIGEST_INVALID')
             verification = payload.get('verification_mutation_ids')
             if verification is not None:
                 if not isinstance(verification, list) or len(verification) != len(ops):

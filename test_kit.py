@@ -418,6 +418,22 @@ class FixtureAuthority(unittest.TestCase):
                     self.assertGreater(plane.v2_calls['commit'], 0)
                     self.assertFalse(plane.fabric_manifest_available)
                     self.assertEqual(plane.fabric_counters['manifest_requests'], 0)
+                    # NativeApps reserves its port by creating this nested
+                    # registry. Exercise the released directory publisher,
+                    # whose caller digest differs from ordinary file cohorts.
+                    for directory in ('.gpu-hub-internal', '.gpu-hub-internal/lab-apps'):
+                        (root / directory).mkdir()
+                        coordinator.stage_local_directory(directory)
+                        self.assertTrue(coordinator._publish_one_directory_put())
+                        self.assertTrue(coordinator.refresh_remote())
+                        self.assertTrue(database.is_remote_directory(directory))
+                    registry = '.gpu-hub-internal/lab-apps/connected_host-' + host.id + '.json'
+                    registry_bytes = b'{"apps":{},"port_leases":{"fixture":{"port":9000}}}'
+                    (root / registry).write_bytes(registry_bytes)
+                    self.assertTrue(watch.record_put(registry))
+                    drive(lambda: plane.fabric_files.get(registry) == registry_bytes
+                          and coordinator.ready_for_commands)
+                    self.assertEqual(plane.safe_errors, [])
                     lookup = transport.lookup_v2({**common, 'path': 'first.txt'})['entry']
                     self.assertEqual(lookup['sha256'], hashlib.sha256(b'first real signed sync').hexdigest())
                     blocks = [{'sha256': b['sha256'], 'size_bytes': b['size_bytes']} for b in lookup['blocks']['blocks']]
@@ -453,13 +469,13 @@ class FixtureAuthority(unittest.TestCase):
         op = {'op': 'put', 'path': 'file.txt', 'kind': 'file', 'digest': sha, 'size_bytes': len(content),
               'blocks': {'version': 1, 'algorithm': 'sha256', 'block_size_bytes': len(content), 'block_count': 1,
                          'total_bytes': len(content), 'storage': {'kind': 'connected_host_object_cas_v1'}, 'blocks': [block]}}
-        body = {**common, 'mutation_id': str(uuid.uuid4()), 'ops': [op],
+        body = {**common, 'mutation_id': str(uuid.uuid4()), 'request_digest': '0'*64, 'ops': [op],
                 'inline_blocks': [{'sha256': sha, 'size_bytes': len(content), 'bytes_b64': base64.b64encode(content).decode()}]}
         import copy
         bad = []
         candidate = copy.deepcopy(body); candidate['inline_blocks'][0]['bytes_b64'] = base64.b64encode(b'bad').decode(); bad.append(candidate)
         candidate = copy.deepcopy(body); candidate['attachment_id'] = str(uuid.uuid4()); bad.append(candidate)
-        candidate = copy.deepcopy(body); candidate['request_digest'] = '0'*64; bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['request_digest'] = 'not-a-digest'; bad.append(candidate)
         candidate = copy.deepcopy(body); candidate['ops'][0]['path'] = '../outside'; bad.append(candidate)
         candidate = copy.deepcopy(body); candidate['verification_mutation_ids'] = ['not-a-uuid']; bad.append(candidate)
         candidate = copy.deepcopy(body); candidate['unknown'] = True; bad.append(candidate)
@@ -472,6 +488,9 @@ class FixtureAuthority(unittest.TestCase):
         self.assertEqual(plane.fabric_v2_commit(host, body), result)
         self.assertEqual(len(plane.v2_journal), 1)
         changed = copy.deepcopy(body); changed['ops'][0]['path'] = 'changed.txt'
+        with self.assertRaises(Rejected):
+            plane.fabric_v2_commit(host, changed)
+        changed = copy.deepcopy(body); changed['request_digest'] = '1'*64
         with self.assertRaises(Rejected):
             plane.fabric_v2_commit(host, changed)
         plane.revoke(host)
