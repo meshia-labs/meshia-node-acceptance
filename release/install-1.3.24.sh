@@ -974,7 +974,8 @@ raise SystemExit(0 if ready else 1)
     [ "$attempt" -le 30 ] && sleep 2
   done
   log "Meshia is connected, but its background service has not verified access to the mounted workspace."
-  log "Installation is incomplete while macOS workspace access is pending. A previously denied Network Volumes permission must be restored in macOS Privacy & Security."
+  log "Installation is incomplete until the background mount-access check succeeds. Run: $BIN_DIR/meshia-node compute --json"
+  log "If the reported reason is workspace_access_denied, restore Network Volumes access in macOS Privacy & Security. Other readiness failures need the reported mount or service issue resolved."
   return 1
 }
 
@@ -1149,10 +1150,8 @@ print_fskit_approval_steps() {
 }
 
 report_fskit_approval_if_pending() {
-  # Detect "Meshia.app's file system extension is installed but the user has
-  # not approved it in System Settings" and say exactly what to do, instead
-  # of silently staying on FUSE-T. Bounded: the probe behind it can touch
-  # mount(8), which blocks on a wedged mount.
+  # Only an explicit FSKit choice needs extension approval. A successful
+  # ordinary FUSE-T install does not require enabling a legacy extension.
   [ "$OS" = "Darwin" ] || return 0
   # An explicit app-free install is complete on FUSE-T. Do not contradict that
   # choice with System Settings instructions for an unrelated older app.
@@ -1170,7 +1169,7 @@ try:
         document = json.load(source)
 except (OSError, ValueError):
     raise SystemExit(1)
-pending = document.get("extension_state") == "disabled" and document.get("backend") != "fskit"
+pending = document.get("requested") == "fskit" and document.get("extension_state") == "disabled" and document.get("backend") != "fskit"
 raise SystemExit(0 if pending else 1)
 PY
   log "WARNING: Meshia's file system extension is installed but not yet approved in System Settings"
@@ -3486,11 +3485,13 @@ adopt_existing_workspace_if_requested() {
 configure_native_mount_if_explicit() {
   local mount_flag=""
   case "$MOUNT_RUNTIME_MODE" in
-    off) mount_flag="--no-native-mount" ;;
-    install) mount_flag="--native-mount" ;;
+    off) mount_flag="--disable" ;;
+    install) mount_flag="--enable" ;;
     *) return 0 ;;
   esac
-  "$CANDIDATE_CLI" --home "$MESHIA_HOME" connect --enroll-only "$mount_flag" >/dev/null \
+  # This is a local preference, not a reconnect or enrollment operation. In
+  # particular, upgrades must retain the current device generation/attachment.
+  "$CANDIDATE_CLI" --home "$MESHIA_HOME" mount "$mount_flag" >/dev/null \
     || die "the native mount preference could not be persisted safely"
 }
 

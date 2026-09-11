@@ -18,7 +18,7 @@ SAFE_KEYS.update(('diagnostics', 'program', 'stdout_bytes', 'stderr_bytes', 'kno
 SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active', 'mount',
                  'mounted', 'state', 'workspace_execution', 'present', 'ready',
                  'policy_supported', 'reason', 'fuse_prerequisites'))
-ARTIFACT_NAMES = {'meshia_node-1.3.21-py3-none-any.whl', 'MeshiaNode-1.3.21.app.zip', 'install-1.3.21.sh'}
+ARTIFACT_NAMES = {'meshia_node-1.3.24-py3-none-any.whl', 'MeshiaNode-1.3.24.app.zip', 'install-1.3.24.sh'}
 
 def public(value, *, depth=0):
     if depth > 6:
@@ -46,7 +46,7 @@ def main(directory):
     print(rendered)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write('### Exact 1.3.21 acceptance\n\n```json\n' + rendered + '\n```\n')
+            output.write('### Exact 1.3.24 acceptance\n\n```json\n' + rendered + '\n```\n')
 
 if __name__ == '__main__':
     main(sys.argv[1])
