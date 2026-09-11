@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "e07d85b104be8eba73d6a785127f18b7626caa2d5192fb8499491887951f2fe5"
+LOCK_SHA256 = "0663443123ad1d8b87338a4efbfa9e48d28bcf3c1c326efc8c86d79f2b2c55e9"
 LABEL = "io.meshia.node"
 PUBLIC_CA_PROBE = """import json,ssl
 count = ssl.create_default_context().cert_store_stats()['x509_ca']
@@ -117,7 +117,7 @@ def native_completion_diagnostics(completion):
     text = output.decode(errors='replace') + '\n' + (message[:4096] if isinstance(message, str) else '')
     fixed = ['Default public CA store is empty',
              'The command exceeded its timeout and its process session was stopped.']
-    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.29-py3-none-any.whl') as archive:
+    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.30-py3-none-any.whl') as archive:
         for module in ('native_command', 'macos_native', 'native_execution', 'workspace'):
             source = archive.read('meshia_node/' + module + '.py').decode()
             fixed.extend(re.findall(r'raise [A-Za-z_]\w*\("([^"$\n]{8,240})"\)', source))
@@ -170,11 +170,13 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.29.sh').read_text()
+    script = (ROOT / 'release/install-1.3.30.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     from cow_acceptance import PROBE_FAILURE_MARKERS
     fixed.extend(PROBE_FAILURE_MARKERS)
+    from native_delta_acceptance import FD_FAILURE_MARKERS
+    fixed.extend(FD_FAILURE_MARKERS)
     known = sorted((text for text in dict.fromkeys(fixed) if text in output),
                    key=output.rfind)
     types = [name for name in ('ModuleNotFoundError', 'ImportError', 'FileNotFoundError',
@@ -253,9 +255,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.29-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.29.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.29", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.30-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.30.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.30", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -416,7 +418,7 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.29.sh').read_text()
+    source = (ROOT / 'release/install-1.3.30.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
     libraries = (('/usr/local/lib', 'libfuse-t.dylib'),
@@ -497,7 +499,8 @@ def cleanup(directory):
     write_json(directory / "cleanup.json", receipt)
     return receipt
 
-def acceptance(directory):
+def acceptance(directory, *, profile="changed-paths"):
+    require(profile in ("changed-paths", "full"), "Unknown acceptance profile")
     context = read_json(directory / "context.json")
     manifest = read_json(directory / "release.json")
     validate_manifest(manifest, context["source"], context["wheel_sha"], context["app_sha"])
@@ -511,8 +514,8 @@ def acceptance(directory):
     mount = home / "Meshia"
     unit = home / "Library/LaunchAgents/io.meshia.node.plist"
     from meshia_node.macos_native import Kernel
-    from fixture_plane import AcceptancePlane
-    plane = AcceptancePlane()
+    from fixture_plane import AccessTransitionPlane
+    plane = AccessTransitionPlane()
     plane.select_access_mode("full")
     kernel = Kernel()
     identities = []
@@ -521,7 +524,7 @@ def acceptance(directory):
     workspace = mount / plane.workspace_name
     receipt = {"passed": False, "source_commit": context["source"], "artifacts": context["artifacts"],
                "run_id": os.environ["GITHUB_RUN_ID"], "scope": "hosted_macos_packaged_loopback_account",
-               "production_account_tested": False, "customer_privacy_prompt_ux_tested": False,
+               "profile": profile, "production_account_tested": False, "customer_privacy_prompt_ux_tested": False,
                "artifact_transport": "verified_bundle_loopback",
                "deployed_https_delivery_tested": False, "native_apps_tested": False,
                "development_host_override": False, "loopback_control_transport": True, "steps": []}
@@ -567,7 +570,7 @@ def acceptance(directory):
                 "Native queued command failed")
         return json.loads(base64.b64decode(value["result"]["output_base64"]))
 
-    def native_app(mode):
+    def native_app(mode, *, after_reserve=None):
         from app_acceptance import app_completion_diagnostics, app_error_code, exercise_app
         with zipfile.ZipFile(directory / manifest['package']) as archive:
             codes = set()
@@ -593,11 +596,64 @@ def acceptance(directory):
             return result['result']
         facts = exercise_app(submit, python, private, mode, remember=remember,
                              gone=lambda identity: kernel.identity(identity.pid) != identity,
-                             uid=os.getuid(), progress=progress)
+                             uid=os.getuid(), progress=progress, after_reserve=after_reserve,
+                             after_register=(lambda: unchanged_app_list(1)) if profile == 'changed-paths' else None)
         wait('native app workspace publication',
              lambda: plane.fabric_files.get('mac-app-' + mode + '.txt') == ('app-compute-' + mode).encode(), 30)
         require(private.read_text() == 'full', 'Native app changed the personal canary')
         record(mode + '_native_app', **facts, owned_process_stopped=True)
+
+    def configured_access():
+        return read_json(node_home / 'config.json')['access']
+
+    def unchanged_app_list(expected_count):
+        registry = '.gpu-hub-internal/lab-apps/connected_host-' + read_json(node_home / 'config.json')['host_id'] + '.json'
+        local = workspace / registry
+        def observed():
+            data = local.read_bytes() if local.exists() else None
+            require(data is None or len(data) <= 65536, 'App registry fixture exceeded bound')
+            with plane._state_lock:
+                remote = plane.fabric_files.get(registry)
+                return {'head': len(plane.v2_journal), 'local_present': data is not None,
+                        'local_sha256': hashlib.sha256(data).hexdigest() if data is not None else None,
+                        'remote_present': remote is not None,
+                        'remote_sha256': hashlib.sha256(remote).hexdigest() if remote is not None else None}
+        wait('app registry publication settled', ready, 40)
+        before = observed()
+        for _ in range(3):
+            command_id = plane.enqueue('app_control', {'operation': 'list_lab_apps', 'arguments': {}})
+            response = wait('app list completion', lambda: plane.completions.get(command_id), 20)
+            listed = response.get('result', {}).get('apps')
+            require(response.get('status') == 'succeeded' and isinstance(listed, list)
+                    and len(listed) == expected_count,
+                    'App listing result changed')
+            wait('app list settled', ready, 20)
+            require(observed() == before, 'App list changed the registry or manifest head')
+        record('native_unchanged_app_list', poll_count=3, app_count=expected_count,
+               manifest_head_before=before['head'], manifest_head_after=before['head'],
+               registry_unchanged=True, registry_present=before['local_present'])
+
+    def transition_native_app(mode):
+        previous = configured_access()
+        require(previous in ('full', 'limited') and previous != mode,
+                'App transition must begin in the other compute mode')
+        plane.begin_access_transition(mode)
+        try:
+            # Complete an ordinary prior-mode heartbeat, admit a new-mode
+            # signed reservation, then let the next heartbeat adopt that mode.
+            require(plane.heartbeat_observed.wait(30), 'Ordinary heartbeat did not report the prior fixture snapshot')
+            require(configured_access() == previous, 'Access changed before the prior snapshot was released')
+            def after_reserve():
+                require(configured_access() == previous, 'Reservation did not precede the access heartbeat')
+                plane.release_access_heartbeat()
+                wait('delayed access heartbeat applied', lambda: configured_access() == mode, 15)
+            native_app(mode, after_reserve=after_reserve)
+            record('native_app_access_transition', mode=mode, previous_mode=previous,
+                   reservation_before_heartbeat=True, access_applied_before_register=True,
+                   signed_app_lane=True, deterministic_fixture_ordering=True,
+                   production_concurrency_tested=False, owned_process_stopped=True)
+        finally:
+            plane.release_access_heartbeat()
 
     def durable_rename(source, destination, expected):
         # Wait cheaply on the fixture's durable namespace, then verify its
@@ -722,102 +778,119 @@ def acceptance(directory):
         require(records and all(item["type"] in ("smbfs", "nfs", "fuse", "osxfuse", "macfuse") for item in records),
                 "No actual native filesystem mount was observed")
         record("native_mount_roundtrip", mounts=records)
-        phase = "classic_dirty_rename"
-        run([python, "-I", "-c", "import os,pathlib,sys;p,q=map(pathlib.Path,sys.argv[1:]);"
-             "f=p.open('wb');f.write(b'mounted-edited');f.flush();os.fsync(f.fileno());f.close();"
-             "p.rename(q);assert not p.exists() and q.read_bytes()==b'mounted-edited'",
-             workspace / "mac-mounted.txt", workspace / "mac-mounted-renamed.txt"])
-        record("native_classic_dirty_rename", **durable_rename("mac-mounted.txt", "mac-mounted-renamed.txt", b"mounted-edited"))
-        phase = 'classic_dirty_rename_recreate'
-        import cow_acceptance
-        recreated = json.loads(run([python, '-I', '-c', cow_acceptance.CLASSIC_RECREATE_PROBE,
-            workspace / 'mac-mounted-renamed.txt', workspace / 'mac-mounted-recreate-renamed.txt']))
-        require(recreated == {'local_rename': True, 'source_recreated': True,
-                              'mounted_readback': True, 'fsync': True}, 'Mounted recreation result changed')
-        record('native_classic_dirty_rename_recreate', **recreated,
-               **durable_recreated_source('mac-mounted-renamed.txt', 'mac-mounted-recreate-renamed.txt'))
-        phase = "mounted_tree_cow_namespace"
-        import cow_acceptance
-        seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
-        receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes']}
-        # Observe namespace publication without warming the seeded file bytes.
-        def cold_namespace_ready(sequence):
-            value = ready()
-            return (value is not None and value.get("service", {}).get("runtime", {})
-                    .get("fabric_head_generation", -1) >= sequence)
-        wait("cold file namespace", lambda: cold_namespace_ready(seed["entry_seq"]), 45)
-        before_reads = plane.cow_source_read_bytes[seed["content_sha256"]]
-        receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes'], 'source_read_bytes_before': before_reads}
-        phase = 'mounted_tree_cow_mutation'
-        cow = json.loads(run([python, "-I", "-c", cow_acceptance.PROBE, workspace / cow_acceptance.PATH]))
-        require(cow_acceptance.validate(cow), "Mounted COW result changed")
-        phase = 'mounted_tree_cow_publication'
-        wait("mounted COW publication", lambda: plane.fabric_files.get(cow_acceptance.PATH)
-             == cow_acceptance.expected_bytes(), 90)
-        record("native_mount_tree_cow", **cow, durable_publication=True,
-               source_size_bytes=seed["size_bytes"], source_digest=seed["digest"],
-               cold_read_tested=False, source_read_bytes_before=before_reads,
-               source_read_bytes=plane.cow_source_read_bytes[seed["content_sha256"]])
-        phase = 'mounted_sparse_cow_namespace'
-        sparse = plane.seed_cold_file(cow_acceptance.SPARSE_PATH, cow_acceptance.SPARSE_PREFIX,
-                                     logical_size=cow_acceptance.SPARSE_SIZE)
-        receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
-                                    'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX)}
-        wait('large sparse source namespace', lambda: cold_namespace_ready(sparse['entry_seq']), 45)
-        phase = 'mounted_sparse_cow_cold_precondition'
-        before_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
-        receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
-            'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX), 'source_read_bytes_before': before_reads}
-        require(before_reads == 0, 'Large sparse source was already downloaded')
-        phase = 'mounted_sparse_cow_mutation'
-        changed = json.loads(run([python, '-I', '-c', cow_acceptance.SPARSE_PROBE,
-                                 workspace / cow_acceptance.SPARSE_PATH]))
-        require(changed['content_sha256'] == hashlib.sha256(cow_acceptance.sparse_expected_bytes()).hexdigest()
-                and changed['size_bytes'] == len(cow_acceptance.sparse_expected_bytes()), 'Sparse result identity changed')
-        after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
-        receipt['cow_observation']['source_read_bytes'] = after_reads
-        require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
-        phase = 'mounted_sparse_cow_publication'
-        wait('sparse COW publication', lambda: plane.fabric_files.get(cow_acceptance.SPARSE_PATH)
-             == cow_acceptance.sparse_expected_bytes(), 90)
-        after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
-        receipt['cow_observation']['source_read_bytes'] = after_reads
-        require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
-        record('native_mount_sparse_cold_cow', **changed, durable_publication=True,
-               cold_read_tested=True, cold_source_initially_uncached=True, source_digest=sparse['digest'],
-               physical_source_bytes=len(cow_acceptance.SPARSE_PREFIX), source_read_bytes_before=before_reads,
-               source_read_bytes=after_reads)
-        phase = "mounted_raw_cow_namespace"
-        raw_source = cow_acceptance.canonical_raw_source()
-        raw_seed = plane.seed_canonical_raw_file(raw_source, cow_acceptance.RAW_BASE)
-        receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes']}
-        wait("canonical raw source namespace", lambda: cold_namespace_ready(raw_seed['entry_seq']), 45)
-        source_digests = {block['sha256'] for block in raw_source['blocks']['blocks']}
-        before_reads = sum(plane.cow_source_read_bytes[digest] for digest in source_digests)
-        receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes'], 'source_read_bytes_before': before_reads}
-        phase = 'mounted_raw_cow_mutation'
-        raw = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_PROBE,
-                             workspace / raw_source['path'], workspace / cow_acceptance.RAW_DESTINATION]))
-        require(raw['content_sha256'] == hashlib.sha256(cow_acceptance.expected_bytes()).hexdigest()
-                and raw['size_bytes'] == len(cow_acceptance.expected_bytes()), "Raw mounted result changed")
-        phase = 'mounted_raw_cow_publication'
-        record("native_raw_sha_cow_rename", **raw,
-               **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
-               cold_read_tested=False, source_read_bytes_before=before_reads, source_size_bytes=len(cow_acceptance.RAW_BASE),
-               source_digest=raw_source['digest'], source_read_bytes=sum(plane.cow_source_read_bytes[d] for d in source_digests))
-        phase = "owned_service_remount"
-        before_restart = snapshot()['service']['runtime']
-        prior = [remember(before_restart[key]) for key in ('pid', 'native_host_pid')]
-        run([cli, "--json", "service", "restart", "--wait", "--expected-version", manifest['version'],
-             "--timeout-seconds", "60"], timeout=90)
-        replacement = wait("owned restarted service", ready, 15)['service']['runtime']
-        require(all(kernel.identity(identity.pid) != identity for identity in prior), "Old native runtime survived restart")
-        remember(replacement['pid']); remember(replacement['native_host_pid'])
-        reopened = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_REOPEN_PROBE,
-                                  workspace / cow_acceptance.RAW_DESTINATION, workspace / raw_source['path']]))
-        record("native_service_restart_readback", **reopened,
-               **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
-               service_restart_readback=True, pending_journal_crash_recovery_tested=False)
+        if profile == 'changed-paths':
+            phase = 'empty_app_list'
+            unchanged_app_list(0)
+        phase = 'mounted_open_descriptions'
+        import native_delta_acceptance as delta
+        seed = plane.seed_cold_file(delta.FD_PATH, delta.FD_SOURCE)
+        wait('open-description source namespace', lambda:
+             snapshot()['service']['runtime'].get('fabric_head_generation', -1) >= seed['entry_seq'], 45)
+        coherent = json.loads(run([python, '-I', '-c', delta.FD_PROBE, workspace / delta.FD_PATH]))
+        expected = delta.fd_expected()
+        require(coherent['size_bytes'] == len(expected)
+                and coherent['content_sha256'] == hashlib.sha256(expected).hexdigest(),
+                'Open-description result identity changed')
+        phase = 'open_descriptions_publication'
+        wait('open-description durable bytes', lambda: plane.fabric_files.get(delta.FD_PATH) == expected, 45)
+        record('native_open_description_coherence', **coherent, durable_publication=True)
+        if profile == "full":
+            phase = "classic_dirty_rename"
+            run([python, "-I", "-c", "import os,pathlib,sys;p,q=map(pathlib.Path,sys.argv[1:]);"
+                 "f=p.open('wb');f.write(b'mounted-edited');f.flush();os.fsync(f.fileno());f.close();"
+                 "p.rename(q);assert not p.exists() and q.read_bytes()==b'mounted-edited'",
+                 workspace / "mac-mounted.txt", workspace / "mac-mounted-renamed.txt"])
+            record("native_classic_dirty_rename", **durable_rename("mac-mounted.txt", "mac-mounted-renamed.txt", b"mounted-edited"))
+            phase = 'classic_dirty_rename_recreate'
+            import cow_acceptance
+            recreated = json.loads(run([python, '-I', '-c', cow_acceptance.CLASSIC_RECREATE_PROBE,
+                workspace / 'mac-mounted-renamed.txt', workspace / 'mac-mounted-recreate-renamed.txt']))
+            require(recreated == {'local_rename': True, 'source_recreated': True,
+                                  'mounted_readback': True, 'fsync': True}, 'Mounted recreation result changed')
+            record('native_classic_dirty_rename_recreate', **recreated,
+                   **durable_recreated_source('mac-mounted-renamed.txt', 'mac-mounted-recreate-renamed.txt'))
+            phase = "mounted_tree_cow_namespace"
+            import cow_acceptance
+            seed = plane.seed_cold_file(cow_acceptance.PATH, cow_acceptance.BASE)
+            receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes']}
+            # Observe namespace publication without warming the seeded file bytes.
+            def cold_namespace_ready(sequence):
+                value = ready()
+                return (value is not None and value.get("service", {}).get("runtime", {})
+                        .get("fabric_head_generation", -1) >= sequence)
+            wait("cold file namespace", lambda: cold_namespace_ready(seed["entry_seq"]), 45)
+            before_reads = plane.cow_source_read_bytes[seed["content_sha256"]]
+            receipt['cow_observation'] = {'source_size_bytes': seed['size_bytes'], 'source_read_bytes_before': before_reads}
+            phase = 'mounted_tree_cow_mutation'
+            cow = json.loads(run([python, "-I", "-c", cow_acceptance.PROBE, workspace / cow_acceptance.PATH]))
+            require(cow_acceptance.validate(cow), "Mounted COW result changed")
+            phase = 'mounted_tree_cow_publication'
+            wait("mounted COW publication", lambda: plane.fabric_files.get(cow_acceptance.PATH)
+                 == cow_acceptance.expected_bytes(), 90)
+            record("native_mount_tree_cow", **cow, durable_publication=True,
+                   source_size_bytes=seed["size_bytes"], source_digest=seed["digest"],
+                   cold_read_tested=False, source_read_bytes_before=before_reads,
+                   source_read_bytes=plane.cow_source_read_bytes[seed["content_sha256"]])
+            phase = 'mounted_sparse_cow_namespace'
+            sparse = plane.seed_cold_file(cow_acceptance.SPARSE_PATH, cow_acceptance.SPARSE_PREFIX,
+                                         logical_size=cow_acceptance.SPARSE_SIZE)
+            receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
+                                        'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX)}
+            wait('large sparse source namespace', lambda: cold_namespace_ready(sparse['entry_seq']), 45)
+            phase = 'mounted_sparse_cow_cold_precondition'
+            before_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+            receipt['cow_observation'] = {'source_size_bytes': sparse['size_bytes'],
+                'physical_source_bytes': len(cow_acceptance.SPARSE_PREFIX), 'source_read_bytes_before': before_reads}
+            require(before_reads == 0, 'Large sparse source was already downloaded')
+            phase = 'mounted_sparse_cow_mutation'
+            changed = json.loads(run([python, '-I', '-c', cow_acceptance.SPARSE_PROBE,
+                                     workspace / cow_acceptance.SPARSE_PATH]))
+            require(changed['content_sha256'] == hashlib.sha256(cow_acceptance.sparse_expected_bytes()).hexdigest()
+                    and changed['size_bytes'] == len(cow_acceptance.sparse_expected_bytes()), 'Sparse result identity changed')
+            after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+            receipt['cow_observation']['source_read_bytes'] = after_reads
+            require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
+            phase = 'mounted_sparse_cow_publication'
+            wait('sparse COW publication', lambda: plane.fabric_files.get(cow_acceptance.SPARSE_PATH)
+                 == cow_acceptance.sparse_expected_bytes(), 90)
+            after_reads = plane.cow_source_read_bytes[sparse['content_sha256']]
+            receipt['cow_observation']['source_read_bytes'] = after_reads
+            require(0 < after_reads <= 4 * 1024**2, 'Sparse source read amplification exceeded fixture bound')
+            record('native_mount_sparse_cold_cow', **changed, durable_publication=True,
+                   cold_read_tested=True, cold_source_initially_uncached=True, source_digest=sparse['digest'],
+                   physical_source_bytes=len(cow_acceptance.SPARSE_PREFIX), source_read_bytes_before=before_reads,
+                   source_read_bytes=after_reads)
+            phase = "mounted_raw_cow_namespace"
+            raw_source = cow_acceptance.canonical_raw_source()
+            raw_seed = plane.seed_canonical_raw_file(raw_source, cow_acceptance.RAW_BASE)
+            receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes']}
+            wait("canonical raw source namespace", lambda: cold_namespace_ready(raw_seed['entry_seq']), 45)
+            source_digests = {block['sha256'] for block in raw_source['blocks']['blocks']}
+            before_reads = sum(plane.cow_source_read_bytes[digest] for digest in source_digests)
+            receipt['cow_observation'] = {'source_size_bytes': raw_source['size_bytes'], 'source_read_bytes_before': before_reads}
+            phase = 'mounted_raw_cow_mutation'
+            raw = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_PROBE,
+                                 workspace / raw_source['path'], workspace / cow_acceptance.RAW_DESTINATION]))
+            require(raw['content_sha256'] == hashlib.sha256(cow_acceptance.expected_bytes()).hexdigest()
+                    and raw['size_bytes'] == len(cow_acceptance.expected_bytes()), "Raw mounted result changed")
+            phase = 'mounted_raw_cow_publication'
+            record("native_raw_sha_cow_rename", **raw,
+                   **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
+                   cold_read_tested=False, source_read_bytes_before=before_reads, source_size_bytes=len(cow_acceptance.RAW_BASE),
+                   source_digest=raw_source['digest'], source_read_bytes=sum(plane.cow_source_read_bytes[d] for d in source_digests))
+            phase = "owned_service_remount"
+            before_restart = snapshot()['service']['runtime']
+            prior = [remember(before_restart[key]) for key in ('pid', 'native_host_pid')]
+            run([cli, "--json", "service", "restart", "--wait", "--expected-version", manifest['version'],
+                 "--timeout-seconds", "60"], timeout=90)
+            replacement = wait("owned restarted service", ready, 15)['service']['runtime']
+            require(all(kernel.identity(identity.pid) != identity for identity in prior), "Old native runtime survived restart")
+            remember(replacement['pid']); remember(replacement['native_host_pid'])
+            reopened = json.loads(run([python, "-I", "-c", cow_acceptance.RAW_REOPEN_PROBE,
+                                      workspace / cow_acceptance.RAW_DESTINATION, workspace / raw_source['path']]))
+            record("native_service_restart_readback", **reopened,
+                   **durable_rename(raw_source['path'], cow_acceptance.RAW_DESTINATION, cow_acceptance.expected_bytes()),
+                   service_restart_readback=True, pending_journal_crash_recovery_tested=False)
         phase = "full_command"
         private = home / "meshia-acceptance-personal.txt"
         require(not private.exists(), "Personal canary unexpectedly exists")
@@ -826,13 +899,17 @@ def acceptance(directory):
             "print(json.dumps({'uid':os.getuid(),'cwd':os.getcwd()}))", private))
         require(full["uid"] == os.getuid() and private.read_text() == "full", "Full did not use ordinary account")
         record("full_native_outside_workspace", ordinary_uid=True, outside_read_write=True)
-        phase = "full_native_app"
-        native_app('full')
+        if profile == 'full':
+            phase = "full_native_app"
+            native_app('full')
         phase = "limited_command"
-        plane.select_access_mode("limited")
-        wait("owner permission downgrade", lambda: json.loads(run([python, "-I", "-c",
-             "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))['access']))", node_home / "config.json"]))
-             == "limited", 40)
+        if profile == 'changed-paths':
+            phase = 'app_access_full_to_limited'
+            transition_native_app('limited')
+        else:
+            plane.select_access_mode("limited")
+            wait("owner permission downgrade", lambda: configured_access() == 'limited', 40)
+        phase = 'limited_command'
         wait("limited readiness", ready, 40)
         limited = complete(enqueue("""import json,os,pathlib,socket,sys
 import cryptography
@@ -857,8 +934,9 @@ print(json.dumps(checks))
                 "Workspace-only native boundary failed")
         wait("limited publication", lambda: plane.fabric_files.get("mac-limited.txt") == b"computed", 90)
         record("limited_native_compute", **limited, workspace_read_write=True, networking=True)
-        phase = "limited_native_app"
-        native_app('limited')
+        if profile == 'full':
+            phase = "limited_native_app"
+            native_app('limited')
         receipt['native_apps_tested'] = True
         phase = "limited_public_ca_store"
         def ca_progress(stores):
@@ -889,6 +967,9 @@ time.sleep(240)
         record("signed_native_detached_cancel", pid=pid, stale_pid_safe_identity=True,
                completion_status=completion["status"], cancellation_seconds=round(cancelled_elapsed, 3),
                command_timeout_seconds=240, cancellation_before_natural_exit=True)
+        if profile == 'changed-paths':
+            phase = 'app_access_limited_to_full'
+            transition_native_app('full')
         private.unlink()
         receipt["passed"] = True
     except Exception as error:
@@ -928,6 +1009,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("verify", "fetch", "run", "cleanup"))
     parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument("--profile", choices=("changed-paths", "full"), default="changed-paths")
     args = parser.parse_args()
     directory = args.directory.resolve()
     try:
@@ -939,7 +1021,7 @@ def main():
             fetch(directory)
             return 0
         if args.action == "run":
-            return acceptance(directory)
+            return acceptance(directory, profile=args.profile)
         result = cleanup(directory)
         print(json.dumps(result))
         return 0 if result["passed"] else 1

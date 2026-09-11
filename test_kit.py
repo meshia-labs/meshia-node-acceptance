@@ -21,12 +21,12 @@ import app_acceptance
 import cow_acceptance
 import report
 
-EXPECTED_SOURCE_COMMIT = 'fd0de4a74575da57c65ca93c8ab0cadecada6acc'
-EXPECTED_PACKAGE_COMMIT = 'e3b360eb3e08e91fd7c500642409b05cc4ca3a1d'
+EXPECTED_SOURCE_COMMIT = 'b909a4614582f49b4f8957dbeb2afe8cbd502a58'
+EXPECTED_PACKAGE_COMMIT = 'b474350a4382b772eb14c91db3e84d56c047c7a9'
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.29-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.30-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
     def test_cow_probe_bytes_on_plain_fixture_do_not_claim_native_mount(self):
@@ -183,7 +183,7 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.29')
+        self.assertEqual(manifest['version'], '1.3.30')
         self.assertEqual(lock['source_commit'], EXPECTED_SOURCE_COMMIT)
         self.assertEqual(lock['package_commit'], EXPECTED_PACKAGE_COMMIT)
 
@@ -193,7 +193,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.29.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.30.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -243,7 +243,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.29-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.30-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)
@@ -681,12 +681,14 @@ class AppFixture(unittest.TestCase):
                     process.kill(); process.wait(timeout=3)
 
     def test_driver_uses_typed_lane_closes_streams_and_never_promotes_failed_cleanup(self):
-        for fail in (None, 'register', 'http', 'head', 'range_head', 'not_modified', 'finite_body', 'websocket', 'cleanup'):
+        for fail in (None, 'delayed_access_heartbeat', 'register', 'unchanged_app_list',
+                     'http', 'head', 'range_head', 'not_modified', 'finite_body', 'websocket', 'cleanup'):
             with self.subTest(fail=fail), socket.socket() as reservation:
                 reservation.bind(('127.0.0.1', 0))
-                calls, states, reads = [], [], {}
+                calls, states, reads, events = [], [], {}, []
                 def submit(kind, payload):
                     operation = payload['operation']; calls.append((kind, dict(payload)))
+                    events.append(operation)
                     if operation == 'reserve_lab_app_port':
                         return {'lease': {'port': reservation.getsockname()[1]}}
                     if operation == 'register_lab_app':
@@ -738,10 +740,17 @@ class AppFixture(unittest.TestCase):
                         return {'message_type': 'binary', 'body_base64': base64.b64encode(app_acceptance.WS_BODY).decode(),
                                 'next_sequence': 1, 'end_of_message': True}
                     return {}
+                def after_reserve():
+                    events.append('delayed_access_heartbeat')
+                    if fail == 'delayed_access_heartbeat': raise AssertionError('fixture heartbeat adoption')
+                def after_register():
+                    events.append('unchanged_app_list')
+                    if fail == 'unchanged_app_list': raise AssertionError('fixture app list changed')
                 def run():
                     return app_acceptance.exercise_app(submit, Path('/fixture/python'), Path('/fixture/personal'),
                         'limited', remember=lambda pid: pid, gone=lambda identity: True,
-                        uid=os.getuid(), progress=lambda **state: states.append(state))
+                        uid=os.getuid(), progress=lambda **state: states.append(state),
+                        after_reserve=after_reserve, after_register=after_register)
                 if fail is None:
                     result = run()
                     self.assertTrue(result['http'] and result['sse_body'] and result['websocket_binary'])
@@ -753,15 +762,20 @@ class AppFixture(unittest.TestCase):
                     self.assertEqual(result['negotiated_read_bytes'], 524288)
                     self.assertEqual(result['largest_read_bytes'], 524288)
                     self.assertEqual(report.public(result)['finite_response_bytes'], len(app_acceptance.FINITE_BODY))
+                    self.assertEqual(events[:5], ['reserve_lab_app_port', 'delayed_access_heartbeat',
+                        'register_lab_app', 'unchanged_app_list', 'open'])
                 else:
                     with self.assertRaises(AssertionError): run()
                 self.assertEqual(calls[-1][1]['operation'], 'unregister_lab_app')
                 self.assertEqual(sum(p['operation'] == 'unregister_lab_app' for _, p in calls), 1)
                 self.assertTrue(all(kind in ('app_control', 'app_http') for kind, _ in calls))
                 self.assertEqual(states[-1]['owned_process_stopped'], fail != 'cleanup')
+                if fail == 'delayed_access_heartbeat': self.assertNotIn('register_lab_app', events)
+                if fail == 'unchanged_app_list': self.assertNotIn('open', events)
                 if fail == 'http': self.assertTrue(any(p['operation'] == 'close' for _, p in calls))
                 if fail == 'websocket': self.assertTrue(any(p['operation'] == 'ws_close' for _, p in calls))
-                if fail in ('register', 'http', 'head', 'range_head', 'not_modified', 'finite_body', 'websocket'):
+                if fail in ('delayed_access_heartbeat', 'register', 'unchanged_app_list', 'http',
+                            'head', 'range_head', 'not_modified', 'finite_body', 'websocket'):
                     self.assertTrue(any(state['phase'] == fail and state['status'] == 'failed' for state in states))
 
     def test_app_failure_receipt_accepts_only_public_fixed_error_code(self):

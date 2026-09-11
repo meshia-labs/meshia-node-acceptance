@@ -1,22 +1,50 @@
 # Meshia Node macOS acceptance kit
 
-This kit retains the exact public 1.3.29 package, bound by SHA-256. The first
-hosted run, 34635392657, passed signed installation and mounted dirty rename
-with source recreation on ARM and Intel, then failed the original COW phase;
-both jobs cleaned up. The bounded cold-source correction here has not been
-dispatched. All 44 local adaptation, kit and signed COW checks pass against the
-exact bundled wheel. These local checks do not create an OS mount.
+**1.3.30 local preparation: bound, not yet published or hosted.** The four files
+come directly from canonical artifact commit `b474350a4382b772eb14c91db3e84d56c047c7a9`,
+with native source `b909a4614582f49b4f8957dbeb2afe8cbd502a58`. Their hashes are
+bound in `release-lock.json`; public delivery verification and the release
+owner's GO are still required before a tag, publication or workflow dispatch.
+The exact bound kit passed 18 focused local checks in 11.999 seconds: retained
+descriptor workload, signed access-snapshot ordering, app-driver ordering and
+failure cleanup, artifact/primary-account fences, signed enrollment/revocation,
+and the loopback app server. No native service or mount was installed by that
+local gate, and the Mac29 cold COW matrix was not rerun.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
-It will test the exact packaged 1.3.29 artifacts without changing Meshia's public installer channel.
-
-Package commit: `e3b360eb3e08e91fd7c500642409b05cc4ca3a1d`; clean source:
-`fd0de4a74575da57c65ca93c8ab0cadecada6acc`. The `release-lock.json` binds
-every included file; the verifier separately pins the lock's SHA-256.
+It does not change Meshia's public installer channel. Once bound, the verifier
+pins all four artifact hashes and the release lock's independent SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
 
-## What the hosted job proves
+## Focused default for 1.3.30
+
+The default `changed-paths` profile retains exact signed installation, actual
+mounting, Full/Workspace-only filesystem and network boundaries, app transport,
+detached-child cancellation and always-run cleanup. It adds:
+
+- A retained, pre-read file descriptor and a separate writable descriptor must
+  see identical in-place cross-page writes, fsync, truncate and zero regrowth.
+  Reopened bytes and the exact durable 33-byte result must match too.
+- Three normal signed empty app-list polls must leave the observed manifest
+  head and local/remote registry bytes unchanged. The same check runs with an
+  owned app already registered. It compares actual before/after state rather
+  than assuming every internal file starts at generation zero.
+- A deterministic fixture access snapshot lets a genuine signed new-mode app
+  reservation complete before the ordinary heartbeat reports the new mode.
+  Every heartbeat completes normally; no socket or signer lock is blocked.
+  The installed config must then adopt the mode before register/HTTP proceeds.
+  Both Full to Workspace-only and Workspace-only to Full are checked through
+  the installed service. This is controlled fixture ordering, not production
+  concurrency evidence; product tests separately cover old-grant cancellation.
+
+The default skips the already-passed Mac29 cold COW matrix and restart sequence.
+The optional `full` profile retains those checks, described below. Both profiles
+keep the original ten-minute fixture and owned-resource cleanup limits. This
+draft has not run either hosted profile. Local check results are recorded
+separately and do not establish native Mac30 acceptance.
+
+## Retained full baseline
 
 - A fresh, non-root GitHub-hosted `runner` account with a GUI launchd domain.
 - By default both standard runners (`macos-15` ARM64 and `macos-15-intel` x64) execute
@@ -158,7 +186,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.29 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.30 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -167,8 +195,9 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.29-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.29-acceptance.1`
+3. Only after the release owner's explicit GO, tag the reviewed bound kit commit
+   `v1.3.30-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.30-acceptance.1 -f profile=changed-paths`
    For an authorized focused diagnosis on a fresh reviewed tag, add
    `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
@@ -222,3 +251,18 @@ preserved separately by the audit owner. The primary Mac28 upgrade also failed
 automatic recovery of its older queued rename; no manual pending-row repair
 was performed. Fresh29 acceptance must not be described as recovery of that
 historical fixture.
+
+The first 1.3.29 run, [34635392657](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34635392657),
+failed its original cold COW phase on both architectures after installation,
+rename and source recreation passed. Cleanup passed. Its exact assertion was
+not retained; local reproduction proved that the ordinary 2 MiB source could
+be prefetched under the healthy default policy, so it did not establish a cold
+precondition. The original run and immutable tag remain unchanged.
+
+The corrected fixture-only 1.3.29 [run 34637700581](https://github.com/meshia-labs/meshia-node-acceptance/actions/runs/34637700581),
+tag `v1.3.29-acceptance.2`, kit `260987777fab973a8f5314b33ebb0b194416a6e9`,
+passed on ARM and Intel with unchanged product artifacts, including the bounded
+sparse cold source and cleanup. This is historical Mac29 proof, not Mac30
+acceptance. Both hosted images had SIP disabled while Gatekeeper remained
+enabled; loopback authentication, bundled transport, finite SSE and controlled
+recreation/restart limits still apply. No Mac30 result is claimed here.

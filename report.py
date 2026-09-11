@@ -34,7 +34,13 @@ SAFE_KEYS.update(('cross_block_write', 'closed_file_reopen', 'local_rename', 'si
 SAFE_KEYS.update(('source_recreated', 'signed_recreated_source_present', 'recreation_before_ack_timing_tested'))
 SAFE_KEYS.update(('cow_observation', 'source_read_bytes_before', 'physical_source_bytes', 'logical_source_bytes',
                  'cold_read_tested', 'sampled_untouched_prefix', 'far_zero_tail', 'tail_write'))
-ARTIFACT_NAMES = {'meshia_node-1.3.29-py3-none-any.whl', 'MeshiaNode-1.3.29.app.zip', 'install-1.3.29.sh'}
+SAFE_KEYS.update(('profile', 'retained_reader', 'writer_readback', 'reopened_readback',
+                 'reader_cached_before_write', 'cross_page_write', 'previous_mode',
+                 'reservation_before_heartbeat', 'access_applied_before_register', 'signed_app_lane'))
+SAFE_KEYS.update(('poll_count', 'app_count', 'manifest_head_before', 'manifest_head_after',
+                 'registry_unchanged', 'registry_present', 'deterministic_fixture_ordering',
+                 'production_concurrency_tested'))
+ARTIFACT_NAMES = {'meshia_node-1.3.30-py3-none-any.whl', 'MeshiaNode-1.3.30.app.zip', 'install-1.3.30.sh'}
 
 def public(value, *, depth=0):
     if depth > 6:
@@ -62,7 +68,7 @@ def main(directory):
     print(rendered)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write('### Exact 1.3.29 acceptance\n\n```json\n' + rendered + '\n```\n')
+            output.write('### Exact 1.3.30 acceptance\n\n```json\n' + rendered + '\n```\n')
 
 if __name__ == '__main__':
     main(sys.argv[1])

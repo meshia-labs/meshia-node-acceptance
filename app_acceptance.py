@@ -119,7 +119,8 @@ def app_completion_diagnostics(completion):
     return safe
 
 
-def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progress):
+def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progress,
+                 after_reserve=None, after_register=None):
     """No direct HTTP fallback: every application byte crosses NativeApps."""
     require(mode in ('full', 'limited'), 'Invalid acceptance app mode')
     name = 'mac-acceptance-' + mode
@@ -179,10 +180,16 @@ def exercise_app(submit, python, personal, mode, *, remember, gone, uid, progres
         request(stream, 'close')
     try:
         lease = control('reserve_lab_app_port')['lease']
+        if after_reserve is not None:
+            phase = 'delayed_access_heartbeat'
+            after_reserve()
         phase = 'register'
         app = control('register_lab_app', title='Native acceptance', port=lease['port'],
                       launch_argv=[str(python), '-I', '-u', '-c', APP_SOURCE, mode, str(personal)], cwd='.')['app']
         require(app['status'] == 'ready', 'Native app did not become ready')
+        if after_register is not None:
+            phase = 'unchanged_app_list'
+            after_register()
         phase = 'http'
         raw, _, _ = http('/http')
         facts = json.loads(raw)

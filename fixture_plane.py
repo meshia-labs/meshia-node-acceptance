@@ -6,6 +6,7 @@ owner-controlled permissions, including across installer upgrades (M445/M1841).
 """
 from typing import Any
 from datetime import datetime, timezone
+import threading
 import uuid
 from fixture_v2 import FabricV2Fixture
 
@@ -218,3 +219,58 @@ class AcceptancePlane(FabricV2Fixture, NativeAcceptancePlane):
                         or (operation == 'register_lab_app' and payload.get('status') != 'succeeded')):
                     self.app_grants.pop(command.payload.get('arguments', {}).get('app_id'), None)
             return result
+
+
+class AccessTransitionPlane(AcceptancePlane):
+    """Hold the prior heartbeat access snapshot while signed claims advance.
+
+    Every heartbeat completes normally, leaving the client's shared signing
+    lock free. This deterministic fixture ordering is not a production network
+    race. Authentication, claim authority, leases and supervision are unchanged.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.heartbeat_observed = threading.Event()
+        self._heartbeat_access = None
+        self._heartbeat_access_deadline = None
+
+    def begin_access_transition(self, mode):
+        with self._state_lock:
+            if mode == self.access_mode or self._heartbeat_access is not None:
+                raise AssertionError('Access transition fixture state changed')
+            self.heartbeat_observed.clear()
+            self._heartbeat_access = self.access_mode
+            self._heartbeat_access_deadline = self.now() + 45
+            self.select_access_mode(mode)
+
+    def release_access_heartbeat(self):
+        with self._state_lock:
+            self._heartbeat_access = None
+            self._heartbeat_access_deadline = None
+
+    def _heartbeat_snapshot(self, document):
+        with self._state_lock:
+            if self._heartbeat_access is not None:
+                if self.now() >= self._heartbeat_access_deadline:
+                    raise Rejected(503, 'FIXTURE_HEARTBEAT_SNAPSHOT_EXPIRED')
+                # Only the prior access report is delayed, never the socket.
+                if 'attachments' in document:
+                    for receipt in document['attachments']:
+                        receipt['access_mode'] = self._heartbeat_access
+                else:
+                    document['access_mode'] = self._heartbeat_access
+                self.heartbeat_observed.set()
+        return document
+
+    def heartbeat(self, host, payload):
+        status, document = super().heartbeat(host, payload)
+        return status, self._heartbeat_snapshot(document)
+
+    def heartbeat_workspaces(self, host, payload):
+        status, document = super().heartbeat_workspaces(host, payload)
+        return status, self._heartbeat_snapshot(document)
+
+    def stop(self):
+        self.release_access_heartbeat()
+        super().stop()
