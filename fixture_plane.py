@@ -5,6 +5,7 @@ lifecycle proofs need production's unique active host/session attachment and
 owner-controlled permissions, including across installer upgrades (M445/M1841).
 """
 from typing import Any
+from fixture_v2 import FabricV2Fixture
 
 from fixture_control_plane import (
     ACCEPTED_PROFILES, FakeControlPlane, Host, NATIVE_FULL_PROFILE, NATIVE_WORKSPACE_PROFILE,
@@ -120,7 +121,7 @@ class NativeAcceptancePlane(FakeControlPlane):
         return 200, {"forgotten": True}
 
 
-class AcceptancePlane(NativeAcceptancePlane):
+class AcceptancePlane(FabricV2Fixture, NativeAcceptancePlane):
     """Current native claim receipts over the shared authenticated fixture."""
 
     def __init__(self) -> None:

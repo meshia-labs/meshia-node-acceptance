@@ -53,6 +53,14 @@ fails the job rather than skipping the check.
 The canonical protocol fixture retains its string-dispatched current routes
 and their validators. Twelve unreachable setup/test helpers were removed;
 the Linux OS acceptance runner and app-stream test implementations are absent.
+The standalone v2 fixture adds authenticated empty snapshots, journal changes,
+file lookup, verified block reads and the bounded put/delete operations used
+here. It validates attachment/generation, object bytes, per-path predecessors
+and exact replay identity using the same in-memory fixture storage. Unsupported
+namespace operations fail explicitly. Legacy missing manifests still fail;
+an empty v2 workspace is represented by sequence zero and no entries.
+The local regression runs the released wheel's real signed transport and sync
+coordinator through this empty state and the first file publication/readback.
 The only product implementation included is the already reviewed public
 distribution wheel, app and installer. No server, pod, source archive or
 internal contract tree is included.
@@ -98,6 +106,12 @@ Do not spoof the GitHub runner environment on a personal Mac.
    bounded public JSON printed in the final job summary, the exact kit commit,
    runner image and run URL. No Actions artifact/cache upload is configured.
    Do not publish raw runtime logs, config or fixture keys.
+
+Installer failures expose only fixed literal messages found in the pinned
+installer, exit status and byte counts, known exception classes, file-existence
+flags and bounded fixture error codes. Captured output and runtime config are
+never published. The first hosted run failed and cleaned up on both runners;
+that result remains historical evidence, not a native acceptance pass.
 
 Dependency downloads use the wheel's pinned Python requirements and the
 canonical installer's verified runtime prerequisites. They do not provision

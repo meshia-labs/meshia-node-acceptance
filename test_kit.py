@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -121,6 +122,17 @@ class ReleaseBoundary(unittest.TestCase):
         with self.assertRaises(AssertionError) as failure:
             acceptance.run([sys.executable, '-c', 'print("private-sentinel");raise SystemExit(7)'])
         self.assertNotIn('private-sentinel', str(failure.exception))
+        self.assertNotIn('private-sentinel', json.dumps(failure.exception.diagnostics))
+
+    def test_installer_diagnostics_only_include_hash_pinned_literal_reasons(self):
+        reason = 'pairing enrollment failed'
+        result = acceptance.subprocess_diagnostics(['bash'], 7,
+            b'private-sentinel https://private.invalid/?token=private-sentinel',
+            ('meshia-node install failed: ' + reason + '\nImportError: private-sentinel').encode())
+        self.assertEqual(result['exit_code'], 7)
+        self.assertEqual(result['known_errors'], [reason])
+        self.assertEqual(result['exception_types'], ['ImportError'])
+        self.assertNotIn('private-sentinel', json.dumps(report.public({'diagnostics': result})))
 
 class FixtureAuthority(unittest.TestCase):
     def test_real_release_client_enrollment_signature_and_revocation(self):
@@ -147,11 +159,107 @@ class FixtureAuthority(unittest.TestCase):
                 client.post_json(f'/api/connected-hosts/{config.host_id}/heartbeat', body)
                 host = plane.hosts[config.host_id]
                 self.assertGreater(len(host.consumed), 0)
+                from meshia_node.fabric import SignedFabricTransport
+                transport = SignedFabricTransport(client, config.host_id, allow_insecure_loopback=True)
+                common = {'attachment_id': attached['attachment']['id'], 'workspace': 'workspace'}
+                empty = transport.snapshot_v2({**common, 'after': None, 'limit': 256})
+                self.assertEqual(empty, {'schema': 'meshia.fabric_v2.snapshot.v1', 'workspace': 'workspace',
+                                        'last_seq': 0, 'entries': [], 'next_after': None})
+                from meshia_node.fabric import FabricAuthority
+                from meshia_node.fabric_cache import FabricRangeCache
+                from meshia_node.fabric_db import FabricDatabase
+                from meshia_node.fabric_sync import FabricSyncCoordinator
+                from meshia_node.fabric_watch import FabricWatch
+                from meshia_node.workspace import WorkspaceBoundary
+                root = Path(name) / 'real-sync'; root.mkdir()
+                workspace = WorkspaceBoundary(root)
+                database = FabricDatabase(Path(name) / 'sync.sqlite3')
+                clock = [100.0]
+                tick = lambda: clock[0]
+                watch = FabricWatch(root, debounce_seconds=0, force_fallback=True, clock=tick)
+                coordinator = FabricSyncCoordinator(transport, database,
+                    FabricRangeCache(Path(name) / 'cache', max_bytes=32*1024*1024, chunk_bytes=4096),
+                    watch, workspace,
+                    FabricAuthority(host.id, host.session_id, host.generation, common['attachment_id']),
+                    Path(name) / 'staging', clock=tick, max_auto_materializations=0)
+                try:
+                    def drive(predicate):
+                        for _ in range(600):
+                            coordinator.poll_once(); clock[0] += 0.2
+                            if predicate():
+                                return
+                            time.sleep(0.002)
+                        self.fail('real released-wheel signed sync did not converge: ' + json.dumps(plane.safe_errors))
+                    drive(lambda: coordinator.ready_for_commands)
+                    head = database.get_remote_manifest_head()
+                    self.assertEqual((head.generation, head.digest), (0, None))
+                    self.assertEqual(database.list_remote_entries(), ())
+                    self.assertEqual(plane.fabric_counters['manifest_requests'], 0)
+                    (root / 'first.txt').write_bytes(b'first real signed sync')
+                    self.assertTrue(watch.record_put('first.txt'))
+                    drive(lambda: plane.fabric_files.get('first.txt') == b'first real signed sync')
+                    self.assertGreater(plane.v2_calls['commit'], 0)
+                    self.assertFalse(plane.fabric_manifest_available)
+                    self.assertEqual(plane.fabric_counters['manifest_requests'], 0)
+                    lookup = transport.lookup_v2({**common, 'path': 'first.txt'})['entry']
+                    self.assertEqual(lookup['sha256'], hashlib.sha256(b'first real signed sync').hexdigest())
+                    blocks = [{'sha256': b['sha256'], 'size_bytes': b['size_bytes']} for b in lookup['blocks']['blocks']]
+                    tickets = client.post_json(f'/api/connected-hosts/{host.id}/fabric/blocks',
+                        {**common, 'operation': 'read_batch_v2', 'path': 'first.txt', 'blocks': blocks})['tickets']
+                    with urllib.request.urlopen(tickets[0]['url']) as response:
+                        self.assertEqual(response.read(), b'first real signed sync')
+                    from meshia_node.errors import RemoteError
+                    with self.assertRaises(RemoteError):
+                        transport.snapshot_v2({**common, 'attachment_id': str(uuid.uuid4()), 'after': None, 'limit': 256})
+                    with self.assertRaises(RemoteError):
+                        transport.manifest({**common, 'offset': 0, 'limit': 256})
+                finally:
+                    coordinator.close(); database.close(); workspace.close()
                 plane.revoke(host)
                 with self.assertRaises(Disconnected):
                     client.post_json(f'/api/connected-hosts/{config.host_id}/heartbeat', body)
+                with self.assertRaises(Disconnected):
+                    transport.snapshot_v2({**common, 'after': None, 'limit': 256})
         finally:
             plane.stop()
+
+    def test_v2_commit_integrity_replay_and_authority_fences(self):
+        from fixture_plane import AcceptancePlane
+        from fixture_control_plane import Host, NATIVE_WORKSPACE_PROFILE, Rejected
+        plane = AcceptancePlane()
+        host = Host(id=str(uuid.uuid4()), public_key_pem='', generation=1, status='connected', session_id=str(uuid.uuid4()))
+        plane.hosts[host.id] = host
+        _, attached = plane.attach(host, {'session_id': host.session_id, 'mount_name': 'workspace', 'permissions': dict(NATIVE_WORKSPACE_PROFILE)})
+        common = {'attachment_id': attached['attachment']['id'], 'workspace': 'workspace'}
+        content = b'bound bytes'; sha = hashlib.sha256(content).hexdigest()
+        block = {'index': 0, 'offset_bytes': 0, 'size_bytes': len(content), 'sha256': sha}
+        op = {'op': 'put', 'path': 'file.txt', 'kind': 'file', 'digest': sha, 'size_bytes': len(content),
+              'blocks': {'version': 1, 'algorithm': 'sha256', 'block_size_bytes': len(content), 'block_count': 1,
+                         'total_bytes': len(content), 'storage': {'kind': 'connected_host_object_cas_v1'}, 'blocks': [block]}}
+        body = {**common, 'mutation_id': str(uuid.uuid4()), 'ops': [op],
+                'inline_blocks': [{'sha256': sha, 'size_bytes': len(content), 'bytes_b64': base64.b64encode(content).decode()}]}
+        import copy
+        bad = []
+        candidate = copy.deepcopy(body); candidate['inline_blocks'][0]['bytes_b64'] = base64.b64encode(b'bad').decode(); bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['attachment_id'] = str(uuid.uuid4()); bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['request_digest'] = '0'*64; bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['ops'][0]['path'] = '../outside'; bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['verification_mutation_ids'] = ['not-a-uuid']; bad.append(candidate)
+        candidate = copy.deepcopy(body); candidate['unknown'] = True; bad.append(candidate)
+        for candidate in bad:
+            with self.assertRaises(Rejected):
+                plane.fabric_v2_commit(host, candidate)
+            self.assertEqual(plane.fabric_files, {})
+        result = plane.fabric_v2_commit(host, body)
+        self.assertEqual(result[1]['applied'], 1)
+        self.assertEqual(plane.fabric_v2_commit(host, body), result)
+        self.assertEqual(len(plane.v2_journal), 1)
+        changed = copy.deepcopy(body); changed['ops'][0]['path'] = 'changed.txt'
+        with self.assertRaises(Rejected):
+            plane.fabric_v2_commit(host, changed)
+        plane.revoke(host)
+        with self.assertRaises(Rejected):
+            plane.fabric_v2_commit(host, body)
 
     def test_owner_downgrade_and_exact_command_supervision(self):
         from fixture_plane import AcceptancePlane

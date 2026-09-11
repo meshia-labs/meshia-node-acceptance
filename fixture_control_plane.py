@@ -344,6 +344,7 @@ class FakeControlPlane:
     """Threaded loopback HTTP control plane with real signature verification."""
 
     def __init__(self, audience: str = "meshia-local") -> None:
+        self.safe_errors = []
         self.audience = audience
         self.hosts: dict[str, Host] = {}
         self.pairings: dict[str, PairingGrant] = {}
@@ -3088,6 +3089,10 @@ _SIGNED_ROUTES = [
         "complete",
         False,
     ),
+    (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/v2-snapshot$"), "fabric_v2_snapshot", False),
+    (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/v2-changes$"), "fabric_v2_changes", False),
+    (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/v2-lookup$"), "fabric_v2_lookup", False),
+    (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/v2-commit$"), "fabric_v2_commit", False),
     (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/manifest$"), "fabric_manifest", False),
     (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/read$"), "fabric_read", False),
     (re.compile(r"^/api/connected-hosts/([^/]+)/fabric/changes$"), "fabric_changes", False),
@@ -3134,6 +3139,8 @@ def _make_handler(plane: FakeControlPlane) -> type[BaseHTTPRequestHandler]:
                 self.wfile.write(body)
 
         def _send_rejected(self, error: Rejected) -> None:
+            plane.safe_errors.append({'status': error.status, 'code': error.code})
+            del plane.safe_errors[:-20]
             self._send(
                 error.status,
                 {"code": error.code, "error": str(error), **error.details},
@@ -3292,6 +3299,8 @@ def _make_handler(plane: FakeControlPlane) -> type[BaseHTTPRequestHandler]:
             except Rejected as error:
                 self._send_rejected(error)
             except Exception as error:  # pragma: no cover - surfaces test bugs
+                plane.safe_errors.append({'status': 500, 'code': 'FAKE_PLANE_ERROR', 'error_type': type(error).__name__})
+                del plane.safe_errors[:-20]
                 self._send(500, {"code": "FAKE_PLANE_ERROR", "error": repr(error)})
 
     return Handler

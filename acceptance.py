@@ -70,13 +70,34 @@ def assess_gatekeeper(app):
     gatekeeper_status()
 
 
+def subprocess_diagnostics(argv, returncode, stdout, stderr):
+    # Match only fixed literal text in the hash-pinned installer. Never return
+    # a captured line, expanded variable, URL, account detail or exception body.
+    script = (ROOT / 'release/install-1.3.17.sh').read_text()
+    output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
+    fixed = re.findall(r'\b(?:die|step) "([^"$`\n]{12,240})"', script)
+    known = [text for text in dict.fromkeys(fixed) if text in output]
+    types = [name for name in ('ModuleNotFoundError', 'ImportError', 'FileNotFoundError',
+              'PermissionError', 'ConnectionError', 'TimeoutError', 'SSLCertVerificationError')
+             if re.search(r'\b' + name + ':', output)]
+    return {'program': Path(str(argv[0])).name, 'exit_code': returncode,
+            'stdout_bytes': len(stdout), 'stderr_bytes': len(stderr),
+            'known_errors': known[-8:], 'exception_types': types}
+
+
+class SubprocessFailure(AssertionError):
+    def __init__(self, argv, returncode, stdout, stderr):
+        self.diagnostics = subprocess_diagnostics(argv, returncode, stdout, stderr)
+        super().__init__(f"{self.diagnostics['program']} returned {returncode}")
+
+
 def run(argv, *, timeout=30, environment=None):
     # Never expose captured installer/control output: it may contain authority.
     process = subprocess.Popen([str(arg) for arg in argv], stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                env=environment, start_new_session=True)
     try:
-        out, _ = process.communicate(timeout=timeout)
+        out, err = process.communicate(timeout=timeout)
     except BaseException:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
@@ -86,7 +107,8 @@ def run(argv, *, timeout=30, environment=None):
                 os.killpg(process.pid, signal.SIGKILL)
                 process.communicate(timeout=5)
         raise
-    require(process.returncode == 0, f"{Path(str(argv[0])).name} returned {process.returncode}")
+    if process.returncode != 0:
+        raise SubprocessFailure(argv, process.returncode, out, err)
     require(len(out) <= 1024 * 1024, "Subprocess output exceeded receipt bound")
     return out
 
@@ -497,6 +519,13 @@ time.sleep(240)
         # private config/control response bodies in uploaded evidence.
         receipt["failure"] = {"phase": phase, "error_type": type(error).__name__,
                               "message": str(error)[:240] if isinstance(error, AssertionError) else None}
+        if isinstance(error, SubprocessFailure):
+            receipt['failure']['diagnostics'] = error.diagnostics
+        receipt['failure']['installer_state'] = {
+            'cli_exists': cli.exists(), 'native_app_exists': (node_home / 'runtime/native/Meshia Node.app').exists(),
+            'service_definition_exists': unit.exists(), 'node_home_exists': node_home.exists()}
+        receipt['failure']['fixture_errors'] = list(plane.safe_errors)
+        receipt['failure']['fixture_requests'] = dict(plane.v2_calls)
     finally:
         signal.alarm(0)
         try:
