@@ -1,10 +1,10 @@
-# Meshia Node 1.3.20 macOS acceptance prerelease
+# Meshia Node 1.3.21 macOS acceptance prerelease
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
-It does not change Meshia's current public installer channel (1.3.14).
+It does not change Meshia's current public installer channel (1.3.20).
 
-Package commit: `8273344d331e427ed9316b0728221667bcac8e19`; clean source:
-`f222af98c5bc50d4e1f2678c96e44e1b11afed9c`. The `release-lock.json` binds
+Package commit: `71aa8ce549754eccc950e30ab1f33d7305cc7880`; clean source:
+`ea02034c8eb53628a81fa11be0007774ceb2ee92`. The `release-lock.json` binds
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
@@ -85,7 +85,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.20 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.21 prerelease. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -94,8 +94,8 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Tag the reviewed kit commit `v1.3.20-acceptance.1`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.20-acceptance.1`
+3. Tag the reviewed kit commit `v1.3.21-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.21-acceptance.1`
    once. Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`
