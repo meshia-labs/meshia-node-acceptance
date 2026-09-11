@@ -1,4 +1,4 @@
-"""Portable kit adaptation checks: no product import, install, service or mount."""
+"""Focused kit checks; verified distribution imports, no native install or mount."""
 import copy
 import hashlib
 import json
