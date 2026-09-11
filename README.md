@@ -3,9 +3,8 @@
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It does not change Meshia's current public installer channel (1.3.14).
 
-This preparation cannot run until the final notarized artifacts are bound.
-Package commit: `PENDING_FINAL_PACKAGE_COMMIT`; clean source:
-`PENDING_FINAL_SOURCE_COMMIT`. The final `release-lock.json` will bind
+Package commit: `8a8b6bf616040e604e0a4b3d4f21c64411e17a32`; clean source:
+`c5c8fd1393ff445fc61c8d4c45364e5e130d1082`. The `release-lock.json` binds
 every included file; the verifier separately pins the lock's SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
