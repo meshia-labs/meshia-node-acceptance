@@ -1,0 +1,105 @@
+# Meshia Node 1.3.17 macOS acceptance prerelease
+
+This is a test-only distribution and a disposable macOS acceptance workflow.
+It does not change Meshia's current public installer channel (1.3.14).
+
+The kit contains the exact reviewed release files from package commit
+`9155ff76167e18757d667cbee987fb955444881e`, built from clean source
+`119499e1824ffc02d187ef8589cbe51f6c72e9ee`. `release-lock.json` binds
+every included file; the verifier separately pins the lock's SHA-256.
+No private repository checkout, Git history, production account, signing key,
+Apple developer login, cloud provider, or Meshia backend is needed.
+
+## What the hosted job proves
+
+- A fresh, non-root GitHub-hosted `runner` account with a GUI launchd domain.
+- Both standard runners (`macos-15` ARM64 and `macos-15-intel` x64) execute
+  independently, with the actual architecture recorded from `uname -m`.
+- The exact signed app passes codesign, stapled-ticket and Gatekeeper checks.
+  Assessments must remain enabled before and after assessment; disabled policy
+  fails the proof and is never changed by this kit.
+- The unmodified versioned installer selects that app and runs its real user
+  service; every installed Python module matches the exact wheel.
+- An actual native filesystem mount starts with empty generation zero and
+  persists a mounted read/write round trip to a loopback Fabric fixture.
+- Full compute uses the ordinary account and can read/write a personal canary.
+- An owner change to Workspace-only preserves workspace writes and loopback
+  networking while denying outside read, write, stat and create.
+- Signed queued execution owns a separate native coalition and cancels a
+  detached child before its natural timeout, without relying on PID alone.
+- Owned service, mounts and process identities are removed at completion.
+
+Only the remote account/control plane is a fixture. Its enrollment proofs,
+request signatures, generation/sequence fences and Fabric transport validation
+are the existing independent protocol fixture, not a permissive HTTP stub.
+Fixture keys and grants are generated in memory or disposable private state.
+No real account credentials are accepted or requested.
+
+## Explicit limits
+
+This smaller kit excludes the canonical helper's app HTTP/SSE/WebSocket,
+large asset, 4 MiB staged upload, app permission-change cleanup and command/app
+independence tests. Final Azure/WAN acceptance must cover those separately.
+It does not prove production sign-in, account revocation, browser app origins,
+WAN transport, managed CPU/GPU readiness, or customer privacy-prompt UX.
+It verifies immutable bundled artifact delivery over a local HTTP fixture,
+not Meshia's public HTTPS installer endpoint. The installer is passed
+`--insecure-dev` solely for the loopback fixture; native signature, notarization,
+ownership, permissions and filesystem checks are retained.
+There is no development native-host override and no fallback from limited to
+Full. A missing runner GUI domain, runtime prerequisite, permission or mount
+fails the job rather than skipping the check.
+
+The canonical protocol fixture retains its string-dispatched current routes
+and their validators. Twelve unreachable setup/test helpers were removed;
+the Linux OS acceptance runner and app-stream test implementations are absent.
+The only product implementation included is the already reviewed public
+distribution wheel, app and installer. No server, pod, source archive or
+internal contract tree is included.
+
+## Local verification without installation
+
+Use Python 3.12+ with the wheel's pinned dependencies available:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python acceptance.py verify --directory /tmp/unused
+PYTHONDONTWRITEBYTECODE=1 python -m unittest -v test_kit
+```
+
+These commands check hashes, fixture authority, output filtering and cleanup
+fences only. Native installation is gated to the fresh hosted `runner` account.
+Do not spoof the GitHub runner environment on a personal Mac.
+
+## Publication and run plan
+
+1. Publish only this directory's inventoried files to a purpose-specific public
+   acceptance repository, as the test-only 1.3.17 prerelease. Do not copy any
+   enclosing evidence folder, private repository history, `.env`, credentials,
+   private source or temporary test state. The production installer pointer
+   remains unchanged. Proposed destination: `meshia-labs/meshia-node-acceptance`.
+   Read-only preflight found that name unused and the release operator has
+   organization admin membership. The repository has not been created.
+2. Record the public kit commit and compare every file against the supplied
+   inventory. The default branch must contain this workflow before dispatch.
+3. Tag the reviewed kit commit `v1.3.17-acceptance.1`, then dispatch
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.17-acceptance.1`
+   once. Read the resulting run's `head_sha` and require the exact reviewed kit
+   commit before interpreting results. The workflow
+   refuses private repositories, uses standard `macos-15` and `macos-15-intel`
+   in parallel with `fail-fast: false`, `contents: read`,
+   pinned checkout/setup actions, no repository secrets, no input-supplied URLs
+   or executable commands, and a 15-minute limit for each job.
+4. Read job admission before considering another attempt. Public standard-runner
+   minutes are free under GitHub's documented policy, but admission during the
+   owner's current billing restriction has not been demonstrated. A billing
+   refusal with zero steps is not an acceptance result; do not retry blindly or
+   change billing as part of this workflow.
+5. Require the native test and the always-run cleanup step to pass. Preserve the
+   bounded public JSON printed in the final job summary, the exact kit commit,
+   runner image and run URL. No Actions artifact/cache upload is configured.
+   Do not publish raw runtime logs, config or fixture keys.
+
+Dependency downloads use the wheel's pinned Python requirements and the
+canonical installer's verified runtime prerequisites. They do not provision
+compute or call production accounts. Network availability and GitHub's hosted
+macOS restrictions remain real acceptance conditions.
