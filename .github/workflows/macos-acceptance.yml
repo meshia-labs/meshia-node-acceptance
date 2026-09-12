@@ -1,10 +1,10 @@
-name: Native41 public artifact Linux inode acceptance
+name: Native42 source candidate Linux retained stat acceptance
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: native41-linux-public
+  group: native42-linux-stat-candidate
   cancel-in-progress: false
 jobs:
   linux:

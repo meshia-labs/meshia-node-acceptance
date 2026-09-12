@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import subprocess
 import unittest
+import hashlib
 
 import linux_fuse_acceptance as public
 
@@ -67,7 +68,14 @@ def main():
     assert sys.platform == 'linux' and os.getuid() != 0
     assert os.environ.get('GITHUB_ACTIONS') == 'true' and Path('/dev/fuse').is_char_device()
     receipt = public.verify_installed(directory)
-    receipt.update(source_candidate=False, public_artifact_acceptance=True,
+    import meshia_node
+    body = (Path(__file__).parent / 'candidate/meshia_node/linux_fuse.py').read_bytes()
+    digest = '95187c371eb9ccd09a3106ba1a7a421800c34eb10e20216a92d33a466488caa2'
+    assert hashlib.sha256(body).hexdigest() == digest
+    (Path(meshia_node.__file__).parent / 'linux_fuse.py').write_bytes(body)
+    receipt.update(source_candidate=True, public_artifact_acceptance=False,
+                   candidate_source='6a5b96f1a3c8e1b5002559171afdecc6a02875da',
+                   candidate_module_sha256={'linux_fuse.py': digest},
                    uid=os.getuid(), kernel=os.uname().release,
                    authority='signed_loopback_fixture', actual_linux_fuse=True, production_enrollment=False)
     receipt['libfuse_version'] = subprocess.check_output(['fusermount', '--version'], text=True).strip()
