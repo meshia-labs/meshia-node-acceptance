@@ -2,6 +2,19 @@ import json,sqlite3,tempfile,unittest
 from pathlib import Path
 from cache_diagnostics import public_event,journal,cache_name,target_database
 class Diagnostics(unittest.TestCase):
+    def test_singleton_requires_exact_private_authenticated_binding(self):
+        target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory).resolve();(home/'.meshia').mkdir()
+            database=home/'.meshia/fabric.db';database.touch()
+            registry=home/'.meshia/workspace-state-locations.json'
+            registry.write_text(json.dumps({'schema':'meshia.workspace-state-locations.v1','legacy':{
+                'account_id':other,'session_id':target,'workspace_id':other,'workspace_root':str(home/'Meshia')}}))
+            registry.chmod(0o600)
+            self.assertEqual(target_database(home,target),database)
+            with self.assertRaises(ValueError):target_database(home,other)
+            registry.chmod(0o644)
+            with self.assertRaises(ValueError):target_database(home,target)
     def test_multiple_workspaces_selects_only_exact_target(self):
         target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
         with tempfile.TemporaryDirectory() as directory:
