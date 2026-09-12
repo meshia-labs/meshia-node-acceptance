@@ -8,6 +8,7 @@ import subprocess
 import unittest
 import ctypes
 import threading
+import struct
 from unittest.mock import patch
 
 import linux_fuse_acceptance as public
@@ -16,10 +17,28 @@ class PublicLinux(public.LinuxFuse):
     def test_inflight_retained_stat_after_successful_replacement(self):
         from meshia_node.linux_fuse import LinuxInodeOperations
         original_getattr = LinuxInodeOperations.getattr
+        original_process = LinuxInodeOperations.process
+        original_open = LinuxInodeOperations.open
         computed, release, renamed = threading.Event(), threading.Event(), threading.Event()
         armed = threading.Event()
         observed = []
         failures = []
+        retained = {}
+        def capture_process(owner, body, callback):
+            owner.context.diagnostic_nodeid = struct.unpack_from('=Q', body, 16)[0]
+            try:
+                return original_process(owner, body, callback)
+            finally:
+                del owner.context.diagnostic_nodeid
+        def capture_open(owner, path, flags):
+            handle = original_open(owner, path, flags)
+            if path in owner._failed_retirements:
+                import fuse
+                library = fuse._libfuse
+                pointer = library.fuse_get_context().contents.fuse
+                channel = library.fuse_session_next_chan(library.fuse_get_session(pointer), None)
+                retained.update(nodeid=owner.context.diagnostic_nodeid, channel=channel, library=library)
+            return handle
         def delayed_getattr(owner, path, fh=None):
             attrs = original_getattr(owner, path, fh)
             if armed.is_set() and path in owner._failed_retirements and attrs['st_nlink'] == 2:
@@ -29,7 +48,9 @@ class PublicLinux(public.LinuxFuse):
                 if not release.wait(5):
                     raise RuntimeError('bounded old stat barrier timed out')
             return attrs
-        with patch.object(LinuxInodeOperations, 'getattr', delayed_getattr):
+        with patch.object(LinuxInodeOperations, 'getattr', delayed_getattr), \
+                patch.object(LinuxInodeOperations, 'process', capture_process), \
+                patch.object(LinuxInodeOperations, 'open', capture_open):
             with public.mounted(b'original destination bytes', materialize=True) as (root, plane, coordinator, database, workspace, settled):
                 dest, source = root / 'data.bin', root / 'source.tmp'
                 writer = os.open(dest, os.O_RDWR)
@@ -46,6 +67,11 @@ class PublicLinux(public.LinuxFuse):
                     writer = None
                     settled(lambda: not database.list_operations())
                     self.assertEqual(os.fstat(reader).st_nlink, 1)
+                    self.assertTrue(retained, 'reader did not open the failed hidden inode')
+                    notify = retained['library'].fuse_lowlevel_notify_inval_inode
+                    notify.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int64, ctypes.c_int64]
+                    notify.restype = ctypes.c_int
+                    self.assertEqual(notify(retained['channel'], retained['nodeid'], -1, 0), 0)
                     libc = ctypes.CDLL(None, use_errno=True)
                     libc.statx.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p]
                     libc.statx.restype = ctypes.c_int
