@@ -23,6 +23,7 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
 SAFE_KEYS.add('host_id')
+SAFE_KEYS.update(('installation_ready','native_executable_matched','owner_wait_deadline_epoch'))
 SAFE_KEYS.update(('cache_diagnostics','read_only','samples','cache_files','cache_path','cache_destination',
  'uid','mode','inode','journal','kind','state','attempt_count','journal_unavailable','diagnostic_error_type',
  'mount_events','operation','at','quiet_rename_errno_may_be_unlogged','invocation','environment_contract','HOME','TMPDIR'))

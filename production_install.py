@@ -10,19 +10,15 @@ import urllib.request
 import uuid
 import zipfile
 
-from acceptance import fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
+from acceptance import account, validate_owned, read_json, fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = '1.3.36'
-SOURCE = 'd9924fa0748d10607196c4c6b4e686bb639cb7da'
-HASHES = {
-    'MeshiaNode-1.3.36.app.zip': 'fa22bba026e08832b348a52d62b3f483c827533c6b92e7389a60f487262c2dbd',
-    'release.json': 'fce566168287650477d773233313dc675880cd199430f3059db9811b2ffb647e',
-    'install-1.3.36.sh': '4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
-    'meshia_node-1.3.36-py3-none-any.whl': 'b98f46f1711d24d5748cefafac5f6ca88862f394dea128ac115075f4b932a86a',
-}
+VERSION = None  # Bind only after root approves the next exact signed release.
+SOURCE = None
+HASHES = {}
 
 def fetch_exact(name, directory):
+    if name not in HASHES:raise ValueError('Release artifact is not pinned')
     with urllib.request.urlopen(ORIGIN + '/meshia-node/' + name, timeout=30) as response:
         if not response.url.startswith(ORIGIN + '/meshia-node/'):
             raise ValueError('Unexpected delivery origin')
@@ -63,18 +59,19 @@ def finish_receipt(receipt, cleanup_result):
 def execute(directory):
     directory.mkdir(parents=True, exist_ok=True)
     home = fresh_account()  # Refuses the primary Mac and every non-hosted account.
+    if not VERSION or not SOURCE or len(HASHES)!=4:raise ValueError('Release is not bound')
     normal_grant = os.environ.pop('PAIR_GRANT', '')
     cache_grant = os.environ.pop('CACHE_PAIR_GRANT', '')
     grant = cache_grant if os.environ.get('MESHIA_CACHE_DIAGNOSTICS') == 'true' else normal_grant
     normal_grant = cache_grant = ''
     if not grant:
         raise ValueError('Missing one-use pairing grant')
-    started = time.monotonic()
-    cache_observer = None
+    installation_ready = False
     receipt = {'local_install_and_closure_passed': False, 'requires_owner_receipt': True,
                'source_commit': SOURCE, 'package_version': VERSION,
                'scope': 'hosted_macos_production_install', 'production_account_tested': False,
-               'customer_privacy_prompt_ux_tested': False, 'steps': []}
+               'customer_privacy_prompt_ux_tested': False, 'steps': [],
+               'owner_wait_deadline_epoch': time.time()+660}
     def record(stage, **facts):
         event = {'name': stage, **facts}
         receipt['steps'].append(event)
@@ -87,9 +84,9 @@ def execute(directory):
         manifest = json.loads(fetch_exact('release.json', directory).read_text())
         if manifest.get('source_commit') != SOURCE or manifest.get('version') != VERSION:
             raise ValueError('Release identity mismatch')
-        installer = fetch_exact('install-1.3.36.sh', directory)
-        wheel = fetch_exact('meshia_node-1.3.36-py3-none-any.whl', directory)
-        archive = fetch_exact('MeshiaNode-1.3.36.app.zip', directory)
+        installer = fetch_exact(f'install-{VERSION}.sh', directory)
+        wheel = fetch_exact(f'meshia_node-{VERSION}-py3-none-any.whl', directory)
+        archive = fetch_exact(f'MeshiaNode-{VERSION}.app.zip', directory)
         write_json(directory / 'owned.json', {'run_id': os.environ['GITHUB_RUN_ID'],
                    'uid': os.getuid(), 'home': str(home), 'fresh_installation_claimed': True})
         environment = {k: v for k, v in os.environ.items()
@@ -128,43 +125,69 @@ def execute(directory):
             raise ValueError('No native mount')
         receipt['production_account_tested'] = True
         canary = personal_canary(home, os.environ['GITHUB_RUN_ID'])
-        if os.environ.get('MESHIA_CACHE_DIAGNOSTICS') == 'true':
-            from cache_diagnostics import Observer
-            cache_observer = Observer(home, os.environ.get('MESHIA_DIAGNOSTIC_WORKSPACE_ID', ''))
-            cache_observer.sample()
+        receipt['installation_ready'] = True
         record('installed_waiting_owner', **host, installed_modules=count,
-               uid=os.getuid(), run_id=os.environ['GITHUB_RUN_ID'], **canary)
-        # Root performs exact-host normal MCP checks and revocation. This job never
-        # broadens permissions or declares those remote checks passed itself.
-        while time.monotonic() - started < 660:
-            if cache_observer is not None:cache_observer.sample()
-            status = json.loads(run([cli, '--json', 'status'], timeout=15))
-            if local_closed(status, mounts(home / 'Meshia')):
-                record('service_and_mount_stopped', **host)
-                receipt['local_install_and_closure_passed'] = True
-                break
-            time.sleep(5)
-        if not receipt['local_install_and_closure_passed']:
-            raise TimeoutError('Owner acceptance window ended')
+               uid=os.getuid(), run_id=os.environ['GITHUB_RUN_ID'],
+               codesign_verified=True, notarization_ticket_valid=True,
+               gatekeeper_accepted=True, native_executable_matched=True, **canary)
+        installation_ready = True
     except Exception as error:
         receipt['failure'] = {'error_type': type(error).__name__}
     finally:
         grant = ''
-        if cache_observer is not None:
-            cache_observer.sample()
-            receipt['cache_diagnostics'] = cache_observer.result()
-        try:
-            result = cleanup(directory)
-        except Exception as error:
-            result = {'passed': False, 'error_type': type(error).__name__}
-        exit_code = finish_receipt(receipt, result)
-        write_json(directory / 'receipt.json', receipt)
-    return exit_code
+        # A successful install step ends now, publishing its verified checkpoint
+        # before owner commands. Job-level always cleanup protects the gap.
+        if not installation_ready:
+            finish_with_cleanup(directory,receipt)
+    return 0 if installation_ready else 1
+
+def finish_with_cleanup(directory,receipt):
+    try:
+        result = cleanup(directory)
+    except Exception as error:
+        result = {'passed': False, 'error_type': type(error).__name__}
+    code = finish_receipt(receipt, result)
+    write_json(directory / 'receipt.json', receipt)
+    return code
+
+def wait_for_owner(directory):
+    home=account()
+    validate_owned(read_json(directory/'owned.json'),home)
+    receipt=read_json(directory/'receipt.json');observer=None
+    try:
+        if not receipt.get('installation_ready') or receipt.get('package_version')!=VERSION or receipt.get('source_commit')!=SOURCE:
+            raise ValueError('Verified installation checkpoint is absent')
+        stage=next(s for s in receipt['steps'] if s['name']=='installed_waiting_owner')
+        if stage['run_id']!=os.environ['GITHUB_RUN_ID'] or stage['uid']!=os.getuid():raise ValueError('Wrong checkpoint owner')
+        deadline=receipt['owner_wait_deadline_epoch']
+        if not time.time()<deadline<=time.time()+660:raise ValueError('Owner wait deadline invalid or expired')
+        if os.environ.get('MESHIA_CACHE_DIAGNOSTICS')=='true':
+            from cache_diagnostics import Observer
+            observer=Observer(home,os.environ.get('MESHIA_DIAGNOSTIC_WORKSPACE_ID',''))
+        cli=home/'.meshia/runtime/bin/meshia-node'
+        while time.time()<deadline:
+            if observer is not None:observer.sample()
+            status=json.loads(run([cli,'--json','status'],timeout=15))
+            if local_closed(status,mounts(home/'Meshia')):
+                event={'name':'service_and_mount_stopped','host_id':stage['host_id']}
+                receipt['steps'].append(event);print(json.dumps(event),flush=True)
+                receipt['local_install_and_closure_passed']=True
+                break
+            time.sleep(5)
+        if not receipt['local_install_and_closure_passed']:raise TimeoutError('Owner acceptance window ended')
+    except Exception as error:
+        receipt['failure']={'error_type':type(error).__name__}
+    finally:
+        if observer is not None:
+            observer.sample();receipt['cache_diagnostics']=observer.result()
+        code=finish_with_cleanup(directory,receipt)
+    return code
 
 if __name__ == '__main__':
-    directory = Path(sys.argv[1])
+    action=sys.argv[1];directory = Path(sys.argv[2])
     try:
-        code = execute(directory)
+        if action not in ('install','wait'):raise ValueError('Unknown profile action')
+        code = execute(directory) if action=='install' else wait_for_owner(directory)
     except Exception as error:
         # Includes pre-marker refusal; cleanup's absent marker is a no-op.
         write_json(directory / 'receipt.json', {

@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: macos-production-install-36
+  group: macos-production-install-next
   cancel-in-progress: false
 jobs:
   macos:
@@ -26,18 +26,24 @@ jobs:
           persist-credentials: false
       - name: Check isolated production profile
         run: python3 -m unittest -v test_production_install test_cache_diagnostics
-      - name: Install public36 and await owner checks
-        timeout-minutes: 12
+      - name: Install canonical release and publish verified checkpoint
+        timeout-minutes: 7
         env:
-          PAIR_GRANT: ${{ !inputs.cache_diagnostics && secrets.MESHIA_MAC36_PAIR_GRANT || '' }}
-          CACHE_PAIR_GRANT: ${{ inputs.cache_diagnostics && secrets.MESHIA_MAC36_PAIR_GRANT || '' }}
+          PAIR_GRANT: ${{ !inputs.cache_diagnostics && secrets.MESHIA_MAC_NEXT_PAIR_GRANT || '' }}
+          CACHE_PAIR_GRANT: ${{ inputs.cache_diagnostics && secrets.MESHIA_MAC_NEXT_PAIR_GRANT || '' }}
           MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
           MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
-        run: python3 production_install.py "$RUNNER_TEMP/meshia-production-36"
+        run: python3 production_install.py install "$RUNNER_TEMP/meshia-production-next"
+      - name: Await owner checks and revocation
+        timeout-minutes: 11
+        env:
+          MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
+          MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
+        run: python3 production_install.py wait "$RUNNER_TEMP/meshia-production-next"
       - name: Always clean only this hosted installation
         if: always()
         timeout-minutes: 2
-        run: python3 acceptance.py cleanup --directory "$RUNNER_TEMP/meshia-production-36"
+        run: python3 acceptance.py cleanup --directory "$RUNNER_TEMP/meshia-production-next"
       - name: Publish sanitized receipt
         if: always()
-        run: python3 report.py "$RUNNER_TEMP/meshia-production-36"
+        run: python3 report.py "$RUNNER_TEMP/meshia-production-next"

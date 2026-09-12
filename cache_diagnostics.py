@@ -80,9 +80,9 @@ class Observer:
         self.samples.append(snapshot)
         self.samples=self.samples[-24:]
     def result(self):
-        return {'profile':'mounted_xcrun_cache','read_only':True,'samples':self.samples,
+        return {'profile':'mounted_replacement','read_only':True,'samples':self.samples,
             'mount_events':self.events[:100],
             'quiet_rename_errno_may_be_unlogged':True,
-            'invocation':['/usr/bin/python3','-c','print("MESHIA_XCRUN_CACHE_PROBE")'],
+            'invocation':['managed-python','-I','-c','mounted_replacement_probe.py'],
             'environment_contract':{'HOME':'mounted workspace','TMPDIR':'mounted workspace'},
             'scope':'Only synthetic xcrun_db names; no cache bytes or raw logs exported'}
