@@ -12,7 +12,10 @@ def public_event(value):
         if value.get('reason') not in BUSY_REASONS:return None
         result={'operation':'rename','error_code':'EBUSY','errno':16,'reason':value['reason']}
         if isinstance(value.get('at'),str) and re.fullmatch(r'[0-9T:.+Z-]{10,40}',value['at']):result['at']=value['at']
-        result.update({key:value[key] for key in BUSY_FLAGS if type(value.get(key)) is bool})
+        # Native Logger serializes scalar booleans as these two exact strings.
+        # Reject every other string and integer instead of coercing truthiness.
+        result.update({key:(value[key] if type(value[key]) is bool else value[key]=='True')
+          for key in BUSY_FLAGS if type(value.get(key)) is bool or value.get(key) in ('True','False')})
         return result
     if value.get('event')!='fabric_mount_operation_failed' or value.get('operation') not in OPS:return None
     code=value.get('error_code')
