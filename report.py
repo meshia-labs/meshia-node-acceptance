@@ -23,6 +23,9 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
 SAFE_KEYS.add('host_id')
+SAFE_KEYS.update(('mutation_id','journal_seq','predecessor_mutation_id','base_generation','base_digest',
+ 'expected_source_digest','expected_destination_digest','staged_digest','staged_size','request_digest',
+ 'commit_unknown','last_error_code','dependency_ids'))
 SAFE_KEYS.update(('installation_ready','native_executable_matched','owner_wait_deadline_epoch'))
 SAFE_KEYS.update(('cache_diagnostics','read_only','samples','cache_files','cache_path','cache_destination',
  'uid','mode','inode','journal','kind','state','attempt_count','journal_unavailable','diagnostic_error_type',
@@ -51,7 +54,7 @@ SAFE_KEYS.update(('access_transition', 'assertion', 'condition_passed', 'adoptio
 ARTIFACT_NAMES = {'meshia_node-1.3.30-py3-none-any.whl', 'MeshiaNode-1.3.30.app.zip', 'install-1.3.30.sh'}
 
 def public(value, *, depth=0):
-    if depth > 6:
+    if depth > 7:
         return None
     if isinstance(value, dict):
         return {k: ({name: digest for name, digest in v.items()

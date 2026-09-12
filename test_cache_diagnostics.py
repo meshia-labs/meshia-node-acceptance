@@ -1,6 +1,7 @@
 import json,sqlite3,tempfile,unittest
 from pathlib import Path
-from cache_diagnostics import public_event,journal,cache_name,target_database
+from cache_diagnostics import public_event,journal,cache_name,target_database,error_enum
+from report import public
 class Diagnostics(unittest.TestCase):
     def test_singleton_requires_exact_private_authenticated_binding(self):
         target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
@@ -40,7 +41,27 @@ class Diagnostics(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/'fabric.db'
             with sqlite3.connect(p) as c:
-                c.execute('CREATE TABLE pending_operations(kind,path,destination_path,state,attempt_count,updated_at_ns,claim_token)')
-                c.execute("INSERT INTO pending_operations VALUES('rename','xcrun_db-a','xcrun_db','queued',0,1,'secret')")
-                c.execute("INSERT INTO pending_operations VALUES('put','personal',NULL,'queued',0,2,'secret')")
+                c.execute('CREATE TABLE pending_operations(scope_id,mutation_id,journal_seq,kind,path,destination_path,state,attempt_count,predecessor_mutation_id,base_generation,base_digest,expected_source_digest,expected_destination_digest,staged_digest,staged_size,request_digest,commit_unknown,last_error,updated_at_ns,claim_token)')
+                c.execute('CREATE TABLE operation_dependencies(scope_id,mutation_id,predecessor_mutation_id)')
+                target='11111111-1111-4111-8111-111111111111';dep='22222222-2222-4222-8222-222222222222';other='33333333-3333-4333-8333-333333333333'
+                row=(1,target,2,'rename','xcrun_db-a','xcrun_db','conflict',1,dep,3,'a'*64,'b'*64,'c'*64,'d'*64,22,'e'*64,0,'409 FABRIC_DESTINATION_EXISTS secret/token',1,'secret')
+                c.execute('INSERT INTO pending_operations VALUES('+','.join('?'*20)+')',row)
+                c.execute('INSERT INTO pending_operations VALUES('+','.join('?'*20)+')',tuple(other if i==1 else 'personal' if i==4 else v for i,v in enumerate(row)))
+                c.executemany('INSERT INTO operation_dependencies VALUES(?,?,?)',[(1,target,dep),(2,target,other),(1,other,other)])
+            c.close()
             result=journal(p);self.assertEqual(len(result),1);self.assertNotIn('secret',json.dumps(result))
+            self.assertEqual(result[0]['dependency_ids'],[dep]);self.assertEqual(result[0]['last_error_code'],'FABRIC_DESTINATION_EXISTS')
+            self.assertEqual(result[0]['expected_destination_digest'],'c'*64)
+            rendered=public({'cache_diagnostics':{'samples':[{'journal':result}]}})
+            self.assertEqual(rendered['cache_diagnostics']['samples'][0]['journal'][0]['dependency_ids'],[dep])
+    def test_error_redaction_never_exports_message(self):
+        self.assertIsNone(error_enum('token=secret /Users/personal'))
+        self.assertIsNone(error_enum('EACCES secret'))
+        self.assertEqual(error_enum('EBUSY'),'EBUSY')
+        self.assertEqual(error_enum('HTTP409 FABRIC_DESTINATION_EXISTS /private/secret'),'FABRIC_DESTINATION_EXISTS')
+    def test_unbound_release_cannot_fetch(self):
+        import production_install as install
+        from unittest.mock import patch
+        with patch.object(install,'HASHES',{}),patch.object(install.urllib.request,'urlopen') as fetch:
+            with self.assertRaises(ValueError):install.fetch_exact('release.json',Path('/tmp'))
+            fetch.assert_not_called()

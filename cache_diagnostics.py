@@ -1,5 +1,6 @@
 """Read-only, bounded diagnostics for the synthetic mounted xcrun cache."""
 import errno,json,os,re,sqlite3,stat,time,uuid
+from contextlib import closing
 from pathlib import Path
 
 CACHE=re.compile(r'^xcrun_db(?:-[A-Za-z0-9]{1,40})?$')
@@ -13,14 +14,37 @@ def public_event(value):
             'errno':getattr(errno,code,None),'at':str(value.get('at',''))[:40]}
 def cache_name(value):
     return value if isinstance(value,str) and CACHE.fullmatch(value) else None
+def identifier(value):
+    return value if isinstance(value,str) and re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',value) else None
+def digest(value):
+    return value if isinstance(value,str) and re.fullmatch('[a-f0-9]{64}',value) else None
+def error_enum(value):
+    # Export only a machine enum, never an adjacent message, URL or path.
+    found=re.search(r'\bFABRIC_[A-Z0-9_]{1,80}\b',str(value or '')[:4096])
+    if found:return found.group(0)
+    return value if value in ('EBUSY','ESTALE','EACCES','EIO','ENOENT') else None
 def journal(database):
     if database.is_symlink():raise ValueError('Database symlink')
-    with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=.2) as connection:
-        rows=connection.execute("SELECT kind,path,destination_path,state,attempt_count FROM pending_operations "
-          "WHERE path GLOB 'xcrun_db*' OR destination_path GLOB 'xcrun_db*' ORDER BY updated_at_ns DESC LIMIT 32").fetchall()
-    return [{'kind':kind,'cache_path':cache_name(path),'cache_destination':cache_name(dest),
-             'state':state,'attempt_count':attempts}
-            for kind,path,dest,state,attempts in rows if cache_name(path) or cache_name(dest)]
+    with closing(sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=.2)) as connection:
+        connection.row_factory=sqlite3.Row
+        rows=connection.execute("SELECT scope_id,mutation_id,journal_seq,kind,path,destination_path,state,attempt_count,"
+          "predecessor_mutation_id,base_generation,base_digest,expected_source_digest,expected_destination_digest,"
+          "staged_digest,staged_size,request_digest,commit_unknown,last_error FROM pending_operations "
+          "WHERE path GLOB 'xcrun_db*' OR destination_path GLOB 'xcrun_db*' ORDER BY updated_at_ns DESC LIMIT 4").fetchall()
+        result=[]
+        for row in rows:
+            if not cache_name(row['path']) or (row['destination_path'] is not None and not cache_name(row['destination_path'])):continue
+            if not identifier(row['mutation_id']):continue
+            item={key:(row[key] if isinstance(row[key],int) and 0<=row[key]<2**63 else None) for key in ('journal_seq','attempt_count','base_generation','staged_size','commit_unknown')}
+            item['kind']=row['kind'] if row['kind'] in ('put','delete','rename') else None
+            item['state']=row['state'] if row['state'] in ('queued','inflight','retry','acked','conflict','quarantined') else None
+            item.update(mutation_id=identifier(row['mutation_id']),cache_path=cache_name(row['path']),cache_destination=cache_name(row['destination_path']),
+              predecessor_mutation_id=identifier(row['predecessor_mutation_id']),last_error_code=error_enum(row['last_error']))
+            for key in ('base_digest','expected_source_digest','expected_destination_digest','staged_digest','request_digest'):item[key]=digest(row[key])
+            dependencies=connection.execute('SELECT predecessor_mutation_id FROM operation_dependencies WHERE scope_id=? AND mutation_id=? ORDER BY predecessor_mutation_id LIMIT 4',(row['scope_id'],row['mutation_id'])).fetchall()
+            item['dependency_ids']=[identifier(d[0]) for d in dependencies if identifier(d[0])]
+            result.append(item)
+    return result
 def target_database(home,workspace_id):
     if str(uuid.UUID(workspace_id))!=workspace_id:raise ValueError('Invalid diagnostic workspace')
     databases=list((home/'.meshia/accounts').glob('*/workspaces/'+workspace_id+'/fabric.db'))
@@ -77,8 +101,10 @@ class Observer:
                         self.seen.add(json.dumps(event));self.events.append(event)
         except (OSError,ValueError,sqlite3.Error) as error:
             snapshot['diagnostic_error_type']=type(error).__name__
-        self.samples.append(snapshot)
-        self.samples=self.samples[-24:]
+        if self.samples and {k:v for k,v in self.samples[-1].items() if k!='elapsed_seconds'}=={k:v for k,v in snapshot.items() if k!='elapsed_seconds'}:
+            self.samples[-1]['elapsed_seconds']=snapshot['elapsed_seconds']
+        else:self.samples.append(snapshot)
+        self.samples=self.samples[-8:]
     def result(self):
         return {'profile':'mounted_replacement','read_only':True,'samples':self.samples,
             'mount_events':self.events[:100],
