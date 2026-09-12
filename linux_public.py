@@ -12,9 +12,10 @@ import linux_fuse_acceptance as public
 
 class PublicLinux(public.LinuxFuse):
     def test_failed_replacement_retains_original_public_name(self):
-        for continuation in ('rename_unlink', 'successful_retry'):
-            with self.subTest(continuation=continuation):
-                self.failed_replacement_continuation(continuation)
+        for repetition in range(5):
+            for continuation in ('rename_unlink', 'successful_retry'):
+                with self.subTest(continuation=continuation, repetition=repetition):
+                    self.failed_replacement_continuation(continuation)
 
     def failed_replacement_continuation(self, continuation):
         original = b'original destination bytes'
@@ -72,14 +73,15 @@ def main():
     assert os.environ.get('GITHUB_ACTIONS') == 'true' and Path('/dev/fuse').is_char_device()
     receipt = public.verify_installed(directory)
     from meshia_node.linux_fuse import LinuxInodeOperations
-    events = deque(maxlen=100)
+    events = deque(maxlen=1000)
     original_getattr = LinuxInodeOperations.getattr
     original_rename = LinuxInodeOperations.rename
     def diagnostic_getattr(owner, path, fh=None):
         result = original_getattr(owner, path, fh)
-        if path in owner._aliases:
-            events.append({'event': 'hidden_getattr', 'failed': path in owner._failed_retirements,
-                           'nlink': result['st_nlink'], 'size': result['st_size']})
+        events.append({'event': 'getattr', 'hidden': path in owner._aliases,
+                       'null_path': path is None, 'fh': fh is not None,
+                       'failed': path in owner._failed_retirements,
+                       'nlink': result['st_nlink'], 'size': result['st_size']})
         return result
     def diagnostic_rename(owner, old, new):
         event = {'event': 'rename', 'old_hidden': '.fuse_hidden' in old,
