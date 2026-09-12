@@ -26,6 +26,12 @@ def complete(cleanup):
       and cleanup.get('storage_terminal_state')=='deleted' and cleanup.get('cleanup_pending') is False
       and all(type(cleanup.get(k)) is int and cleanup[k]==0 for k in COUNTS))
 
+def early_signal(path,workspace):
+    try:info=path.lstat()
+    except FileNotFoundError:return False
+    assert stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid() and info.st_size<=128
+    return json.loads(path.read_text())=={'workspace_id':workspace}
+
 def advance(binding,state,call,save,now,early=False):
     workspace=validate(binding)
     result=call('meshia_workspace_status',{'workspace_id':workspace})
@@ -73,7 +79,8 @@ def main():
         return json.loads(result.stdout)
     while True:
         try:
-            if advance(binding,state,call,save,time.time(),args.cleanup_now):return
+            early=args.cleanup_now or early_signal(args.state_dir/'cleanup-now.json',binding['workspace_id'])
+            if advance(binding,state,call,save,time.time(),early):return
         except (OSError,ValueError,subprocess.TimeoutExpired,RuntimeError):
             # No raw exception, subprocess output or credentials are exported.
             print('Waiting for authoritative cleanup readback',flush=True)

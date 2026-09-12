@@ -1,4 +1,5 @@
-import unittest
+import unittest,tempfile,json
+from pathlib import Path
 import owner_watchdog as w
 
 class Watchdog(unittest.TestCase):
@@ -28,3 +29,11 @@ class Watchdog(unittest.TestCase):
     def test_before_deadline_reads_only(self):
         w.advance(self.b,self.state,self.call,lambda s:None,50)
         self.assertEqual(self.calls,['meshia_workspace_status'])
+    def test_early_signal_requires_exact_workspace_and_regular_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'signal';self.assertFalse(w.early_signal(p,self.b['workspace_id']))
+            p.write_text(json.dumps({'workspace_id':self.b['workspace_id']}))
+            self.assertTrue(w.early_signal(p,self.b['workspace_id']))
+            self.assertFalse(w.early_signal(p,'other'))
+            s=Path(d)/'link';s.symlink_to(p)
+            with self.assertRaises(AssertionError):w.early_signal(s,self.b['workspace_id'])

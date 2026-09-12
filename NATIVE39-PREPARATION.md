@@ -38,9 +38,12 @@ The watchdog only calls normal `meshia_workspace_status` and
 `meshia_workspace_stop`. It never executes on or revokes a device, grants access,
 creates a workspace, or reads a primary mount. Its CLI adapter follows the
 existing durable `live-owner-execution.py` normal-MCP invocation; no historical
-primary-host mutation scripts should be executed. For early cleanup, stop the
-watchdog process and restart it with `--cleanup-now` using the same state
-directory; an exclusive lifetime lock prevents concurrent controllers. Never
+primary-host mutation scripts should be executed. For early cleanup, write
+`cleanup-now.json` in the owner state directory containing only
+`{"workspace_id":"<exact disposable workspace UUID>"}`. The existing watcher
+reads that signal; do not start a concurrent controller. `--cleanup-now` is also
+available when resuming an already stopped controller. An exclusive lifetime
+lock prevents concurrent controllers. Never
 delete state to retry an ambiguous stop. The persisted dispatch intent causes
 all future iterations to read the original operation, including after restart.
 Missing original operation after an ambiguous call requires operator readback,
