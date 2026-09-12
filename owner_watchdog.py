@@ -15,7 +15,7 @@ def validate(binding):
     workspace=binding['workspace_id']
     assert str(uuid.UUID(workspace))==workspace and workspace not in PROTECTED
     assert binding['protected_primary_host']==PRIMARY
-    assert binding['version']=='1.3.39' and binding['root_authorized'] is True
+    assert binding['version']=='1.3.40' and binding['root_authorized'] is True
     assert binding['delete_storage'] is True
     assert type(binding['created_at']) in (int,float) and type(binding['deadline']) in (int,float)
     assert 0<binding['deadline']-binding['created_at']<=900

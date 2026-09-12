@@ -21,6 +21,11 @@ class Diagnostics(unittest.TestCase):
         self.assertNotIn('source_session',result)
         self.assertNotIn('destination_open_writer',result)
         self.assertNotIn('destination_open_reader',result)
+    def test_source_pending_is_distinct_from_source_changed(self):
+        for reason in ('source_pending','source_changed'):
+            result=public_event({'event':'fabric_mount_rename_busy','reason':reason,'source_cached':'True'})
+            self.assertEqual(result['reason'],reason)
+            self.assertTrue(result['source_cached'])
     def test_singleton_requires_exact_private_authenticated_binding(self):
         target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
         with tempfile.TemporaryDirectory() as directory:
