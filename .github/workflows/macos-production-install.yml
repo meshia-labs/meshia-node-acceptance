@@ -25,7 +25,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check isolated production profile
-        run: python3 -m unittest -v test_production_install test_cache_diagnostics
+        run: python3 -m unittest -v test_production_install test_cache_diagnostics test_installed_inventory
       - name: Install canonical release and publish verified checkpoint
         timeout-minutes: 7
         env:

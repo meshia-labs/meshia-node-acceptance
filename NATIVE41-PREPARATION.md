@@ -13,3 +13,21 @@ the package initializer, compares the entire installed .py inventory against
 that manifest, and compares every module's bytes. Missing, extra or changed
 modules fail. A disposable86-module fixture exercises that exact child source.
 Historical NATIVE39/40 preparation files do not bind this run.
+
+## Final source binding procedure
+
+Run `python3 prepare_bindings.py <final-candidate.json> --wheel <exact-wheel>`
+after the final split-process fix is packaged. This read-only helper verifies
+the wheel hash, derives its module inventory and requires linux_fuse.py. It
+prints exact source/hash bindings and leaves public-delivery and dispatch
+authorization false. Apply those exact values to production_install.py and the
+Windows kit's windows37_package.py, then run focused tests, commit and push the
+manual-only branches. Root verifies public delivery before any dispatch.
+
+Do not bind main/HEAD, adae or any pre-fix snapshot by assumption. Final source
+identity comes from the immutable candidate receipt and hash-verified wheel.
+The Mac kit installs through the canonical installer with `--access limited`;
+it does not instantiate an in-process coordinator or override coordinator mode.
+Normal MCP commands traverse the installed production mount and its actual
+coordinator transport. The source-level split-process candidate tests must pass
+before packaging; this kit does not bypass or replace that gate.
