@@ -14,9 +14,12 @@ from acceptance import account, validate_owned, read_json, fresh_account, cleanu
 
 ORIGIN = 'https://meshia.io'
 VERSION = '1.3.41'
-# Intentionally unbound until the release owner supplies final package identities.
-SOURCE = ''
-HASHES = {}
+# Final artifacts bound; dispatch still requires verified public delivery.
+SOURCE = '4de0b28d5a8e8d410a9d9f79da4fb57aec921d17'
+HASHES = {
+    'release.json': 'f10c4fe47f5f84f234e35df16ba1a3234caa3f7129a560eb6a1d7aca2358bd5b',
+    'meshia_node-1.3.41-py3-none-any.whl': 'fa63cc38e1fa9f4d06426e5ac691425f9e54fa504382a5062349d29366e9da06',
+}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')
