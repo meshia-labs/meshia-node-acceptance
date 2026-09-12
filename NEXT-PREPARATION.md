@@ -1,9 +1,10 @@
 # Private next-release Mac qualification
 
-Native38 preparation is deliberately UNBOUND: production_install.py has empty
-version/source/hash pins and refuses installation. Bind only the actual frozen
-artifact source and hashes after root review. No branch push, credentials,
-workspace creation, pairing or dispatch is authorized by this kit.
+Native38 is bound to signed source1084de4e5011b04dd4f5fffd26b3f87692686da0,
+candidatec3b3aa60c0117b1e3b51ba0ad14b73e23d02a67c and the exact four hashes
+from /tmp/meshia-native38-release-20260913/candidate.json. Root approved branch
+publication; credentials, workspace creation, pairing and dispatch still await
+separate fresh workspace GO after actual public delivery verification.
 The preceding failed native36 and native37 archives remain unchanged.
 
 The workflow now finishes the canonical install step immediately after its
@@ -22,7 +23,9 @@ xcrun_db names. At most four operations per snapshot include validated mutation
 and predecessor UUIDs, journal/base generation, expected source/destination,
 base/staged/request SHA256 digests, staged size, commit-unknown state, and up to
 four dependency UUIDs selected only for that operation and scope. Error text is
-reduced to a bounded FABRIC enum or fixed local errno name; no messages, paths,
+reduced to a bounded FABRIC enum or fixed local errno name. The frozen rename
+source is projected only as a boolean; its full JSON/block map is never read
+into Python or exported. No messages, paths,
 claim tokens or request bodies are exported. Unchanged snapshots coalesce;
 only eight distinct snapshots are retained to keep the report bounded. These
 diagnostics do not read or warm the mounted files.

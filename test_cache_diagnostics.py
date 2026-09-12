@@ -48,10 +48,13 @@ class Diagnostics(unittest.TestCase):
                 c.execute('INSERT INTO pending_operations VALUES('+','.join('?'*20)+')',row)
                 c.execute('INSERT INTO pending_operations VALUES('+','.join('?'*20)+')',tuple(other if i==1 else 'personal' if i==4 else v for i,v in enumerate(row)))
                 c.executemany('INSERT INTO operation_dependencies VALUES(?,?,?)',[(1,target,dep),(2,target,other),(1,other,other)])
+                c.execute('ALTER TABLE pending_operations ADD COLUMN rename_source_json TEXT')
+                c.execute('UPDATE pending_operations SET rename_source_json=? WHERE mutation_id=?',('{"private_block_map":"secret"}',target))
             c.close()
             result=journal(p);self.assertEqual(len(result),1);self.assertNotIn('secret',json.dumps(result))
             self.assertEqual(result[0]['dependency_ids'],[dep]);self.assertEqual(result[0]['last_error_code'],'FABRIC_DESTINATION_EXISTS')
             self.assertEqual(result[0]['expected_destination_digest'],'c'*64)
+            self.assertIs(result[0]['rename_source_frozen'],True)
             rendered=public({'cache_diagnostics':{'samples':[{'journal':result}]}})
             self.assertEqual(rendered['cache_diagnostics']['samples'][0]['journal'][0]['dependency_ids'],[dep])
     def test_error_redaction_never_exports_message(self):

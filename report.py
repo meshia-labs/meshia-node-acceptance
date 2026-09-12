@@ -25,7 +25,7 @@ SAFE_KEYS.add('probe_phase')
 SAFE_KEYS.add('host_id')
 SAFE_KEYS.update(('mutation_id','journal_seq','predecessor_mutation_id','base_generation','base_digest',
  'expected_source_digest','expected_destination_digest','staged_digest','staged_size','request_digest',
- 'commit_unknown','last_error_code','dependency_ids'))
+ 'commit_unknown','last_error_code','dependency_ids','rename_source_frozen'))
 SAFE_KEYS.update(('installation_ready','native_executable_matched','owner_wait_deadline_epoch'))
 SAFE_KEYS.update(('cache_diagnostics','read_only','samples','cache_files','cache_path','cache_destination',
  'uid','mode','inode','journal','kind','state','attempt_count','journal_unavailable','diagnostic_error_type',

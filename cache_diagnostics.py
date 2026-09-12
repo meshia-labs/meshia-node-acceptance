@@ -29,7 +29,7 @@ def journal(database):
         connection.row_factory=sqlite3.Row
         rows=connection.execute("SELECT scope_id,mutation_id,journal_seq,kind,path,destination_path,state,attempt_count,"
           "predecessor_mutation_id,base_generation,base_digest,expected_source_digest,expected_destination_digest,"
-          "staged_digest,staged_size,request_digest,commit_unknown,last_error FROM pending_operations "
+          "staged_digest,staged_size,request_digest,commit_unknown,last_error,(rename_source_json IS NOT NULL) AS rename_source_frozen FROM pending_operations "
           "WHERE path GLOB 'xcrun_db*' OR destination_path GLOB 'xcrun_db*' ORDER BY updated_at_ns DESC LIMIT 4").fetchall()
         result=[]
         for row in rows:
@@ -38,6 +38,7 @@ def journal(database):
             item={key:(row[key] if isinstance(row[key],int) and 0<=row[key]<2**63 else None) for key in ('journal_seq','attempt_count','base_generation','staged_size','commit_unknown')}
             item['kind']=row['kind'] if row['kind'] in ('put','delete','rename') else None
             item['state']=row['state'] if row['state'] in ('queued','inflight','retry','acked','conflict','quarantined') else None
+            item['rename_source_frozen']=bool(row['rename_source_frozen'])
             item.update(mutation_id=identifier(row['mutation_id']),cache_path=cache_name(row['path']),cache_destination=cache_name(row['destination_path']),
               predecessor_mutation_id=identifier(row['predecessor_mutation_id']),last_error_code=error_enum(row['last_error']))
             for key in ('base_digest','expected_source_digest','expected_destination_digest','staged_digest','request_digest'):item[key]=digest(row[key])
