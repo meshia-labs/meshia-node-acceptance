@@ -11,6 +11,13 @@ class ProductionInstall(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(p.cleanup(Path(directory)), {'required': False, 'passed': True})
 
+    def test_malformed_receipt_cannot_skip_owned_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'receipt.json').write_text('{unfinished')
+            with patch.object(p,'cleanup',return_value={'passed':True}) as cleanup:
+                self.assertEqual(p.finish_with_cleanup(root),1)
+                cleanup.assert_called_once_with(root)
+
     def test_canary_is_real_owned_and_never_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -91,7 +98,9 @@ class ProductionInstall(unittest.TestCase):
                 'local_install_and_closure_passed':False,'steps':[{'name':'installed_waiting_owner','run_id':'123','uid':os.getuid(),'host_id':'11111111-1111-4111-8111-111111111111'}],'owner_wait_deadline_epoch':time.time()-1}
             (root/'receipt.json').write_text(json.dumps(receipt));(root/'owned.json').write_text('{}')
             with patch.object(p,'account',return_value=root),patch.object(p,'validate_owned'),patch.object(p,'VERSION','test'),patch.object(p,'SOURCE','source'),patch.object(p,'cleanup',return_value={'passed':True}) as cleanup,patch.dict(os.environ,{'GITHUB_RUN_ID':'123'}):
-                self.assertEqual(p.wait_for_owner(root),1);cleanup.assert_called_once_with(root)
+                self.assertEqual(p.wait_for_owner(root),1);cleanup.assert_not_called()
+                self.assertEqual(p.finish_with_cleanup(root,json.loads((root/'receipt.json').read_text())),1)
+                cleanup.assert_called_once_with(root)
             self.assertFalse(json.loads((root/'receipt.json').read_text())['local_install_and_closure_passed'])
 
     def test_wait_success_closes_and_cleans_without_pairing_environment(self):
@@ -101,7 +110,9 @@ class ProductionInstall(unittest.TestCase):
                 'local_install_and_closure_passed':False,'steps':[{'name':'installed_waiting_owner','run_id':'123','uid':os.getuid(),'host_id':'11111111-1111-4111-8111-111111111111'}],'owner_wait_deadline_epoch':time.time()+30}
             (root/'receipt.json').write_text(json.dumps(receipt));(root/'owned.json').write_text('{}')
             with patch.object(p,'account',return_value=root),patch.object(p,'validate_owned'),patch.object(p,'VERSION','test'),patch.object(p,'SOURCE','source'),patch.object(p,'cleanup',return_value={'passed':True}) as cleanup,patch.object(p,'mounts',return_value=[]),patch.object(p,'run',return_value=b'{"service":{"manager_active":false}}'),patch.dict(os.environ,{'GITHUB_RUN_ID':'123','MESHIA_CACHE_DIAGNOSTICS':'false'}):
-                self.assertEqual(p.wait_for_owner(root),0);cleanup.assert_called_once_with(root)
+                self.assertEqual(p.wait_for_owner(root),0);cleanup.assert_not_called()
+                self.assertEqual(p.finish_with_cleanup(root,json.loads((root/'receipt.json').read_text())),0)
+                cleanup.assert_called_once_with(root)
             saved=json.loads((root/'receipt.json').read_text())
             self.assertTrue(saved['local_install_and_closure_passed'])
             self.assertTrue(saved['requires_owner_receipt'])

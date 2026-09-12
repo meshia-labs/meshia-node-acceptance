@@ -138,10 +138,15 @@ def execute(directory):
         # A successful install step ends now, publishing its verified checkpoint
         # before owner commands. Job-level always cleanup protects the gap.
         if not installation_ready:
-            finish_with_cleanup(directory,receipt)
+            write_json(directory/'receipt.json',receipt)
     return 0 if installation_ready else 1
 
-def finish_with_cleanup(directory,receipt):
+def finish_with_cleanup(directory,receipt=None):
+    if receipt is None:
+        try:
+            receipt=read_json(directory/'receipt.json') if (directory/'receipt.json').exists() else {}
+        except Exception as error:
+            receipt={'failure':{'error_type':type(error).__name__}}
     try:
         result = cleanup(directory)
     except Exception as error:
@@ -180,14 +185,16 @@ def wait_for_owner(directory):
     finally:
         if observer is not None:
             observer.sample();receipt['cache_diagnostics']=observer.result()
-        code=finish_with_cleanup(directory,receipt)
-    return code
+        write_json(directory/'receipt.json',receipt)
+    return 0 if receipt['local_install_and_closure_passed'] else 1
 
 if __name__ == '__main__':
     action=sys.argv[1];directory = Path(sys.argv[2])
     try:
-        if action not in ('install','wait'):raise ValueError('Unknown profile action')
-        code = execute(directory) if action=='install' else wait_for_owner(directory)
+        if action not in ('install','wait','cleanup'):raise ValueError('Unknown profile action')
+        if action=='install':code=execute(directory)
+        elif action=='wait':code=wait_for_owner(directory)
+        else:code=finish_with_cleanup(directory)
     except Exception as error:
         # Includes pre-marker refusal; cleanup's absent marker is a no-op.
         write_json(directory / 'receipt.json', {

@@ -40,6 +40,7 @@ try:
     os.lseek(reader,0,os.SEEK_SET)
     create(temporary,old)
     os.replace(temporary,destination)
+    assert not temporary.exists()
     assert os.read(reader,len(new)+1)==new
     assert destination.read_bytes()==old
 finally:os.close(reader)

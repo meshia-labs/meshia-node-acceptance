@@ -16,8 +16,15 @@ and confirms the wait step is running. The actual mounted probe uses distinct
 old/new lengths, an open ordinary reader, newly opened pathname readback and a
 third replacement reusing the same temporary pathname. Each replacement is a
 new operation; no failing operation is retried.
+Every replacement asserts immediate temporary-name absence. After the command
+passes, root must independently use normal MCP file read to verify xcrun_db is
+exactly `meshia third cache\n` (19bytes), and normal MCP listing must confirm
+xcrun_db-Meshia36 is absent. This owner-side readback is a separate final join
+requirement; a successful guest command alone does not satisfy it.
 
 Install or wait failure leaves the unconditional owned cleanup step enabled.
+Only that final cleanup step performs service stop/uninstall, exactly once;
+install and wait merely record their state, avoiding duplicate guest teardown.
 The receipt never calls local success complete owner acceptance. The original
 660-second in-process budget spans install and wait, the job remains15minutes,
 and the independently armed owner watchdog remains the external15-minute
