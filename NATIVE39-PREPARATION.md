@@ -1,9 +1,11 @@
 # Native39 preparation — not dispatched
 
 This branch derives from Mac38 kit `608e7b25898d8a0a539cb18ffc7e6990667a7549`.
-`mounted_replacement_probe.py` is byte-identical. The production source/hash
-bindings are deliberately empty: installation refuses to fetch or enroll until
-root pins the exact public 1.3.39 release. Legacy fixture files for 1.3.30 are
+`mounted_replacement_probe.py` is byte-identical. The source/hash bindings now
+pin the locally packaged 1.3.39 candidate at
+`f901a10761911bbea518b50ee06b0b8c490364c4`. Public delivery is not yet verified:
+root must verify production before dispatch. Owner/workspace/deadline bindings
+remain unbound. Legacy fixture files for 1.3.30 are
 unchanged and are not the production installation path.
 
 The observer accepts only the native `fabric_mount_rename_busy` reason allowlist
@@ -13,8 +15,8 @@ Limited workspace execution; diagnostic observation must not warm its mount.
 
 ## Required root bindings before launch
 
-1. Pin `production_install.py` source and the four public artifact hashes after
-   exact production verification. Commit and publish the kit branch.
+1. Verify the pinned `production_install.py` source and four artifact hashes
+   against exact production delivery before dispatching the published kit branch.
 2. Create a new disposable workspace and record an absolute deadline at most
    900 seconds after creation; do not reuse prior stopped workspaces.
 3. Create a mode-0700 owner state directory in durable local storage. Bind the
