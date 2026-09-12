@@ -11,8 +11,8 @@ import urllib.request
 import zipfile
 
 NAME = "meshia_node-1.3.40-py3-none-any.whl"
-PUBLIC_SHA = None
-SOURCE = None
+PUBLIC_SHA = "89a180456175a2568229daa5efe01e8613ec01e00822b78bfe4f30f2012257a9"
+SOURCE = "844b6487dcf6ba93509bf54986ff831c0a093729"
 if PUBLIC_SHA is None or SOURCE is None:
     raise SystemExit("NATIVE40_RELEASE_UNBOUND: pin exact public wheel and source before dispatch")
 directory = Path("windows37-evidence")
