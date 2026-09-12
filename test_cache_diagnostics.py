@@ -1,7 +1,20 @@
 import json,sqlite3,tempfile,unittest
 from pathlib import Path
-from cache_diagnostics import public_event,journal,cache_name
+from cache_diagnostics import public_event,journal,cache_name,target_database
 class Diagnostics(unittest.TestCase):
+    def test_multiple_workspaces_selects_only_exact_target(self):
+        target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory).resolve()
+            for workspace in [target,other]:
+                path=home/'.meshia/accounts/account-a/workspaces'/workspace/'fabric.db'
+                path.parent.mkdir(parents=True);path.touch()
+            self.assertEqual(target_database(home,target).parent.name,target)
+            second=home/'.meshia/accounts/account-b/workspaces'/target/'fabric.db'
+            second.parent.mkdir(parents=True);second.touch()
+            with self.assertRaises(ValueError):target_database(home,target)
+    def test_rejects_workspace_path_injection(self):
+        with self.assertRaises(ValueError):target_database(Path('/tmp'),'../../anything')
     def test_event_has_no_error_text_or_authority(self):
         e=public_event({'event':'fabric_mount_operation_failed','operation':'rename','error_code':'EBUSY',
             'error':'secret/path/token','claim_token':'secret','at':'2026-09-12'})

@@ -127,7 +127,7 @@ def execute(directory):
         canary = personal_canary(home, os.environ['GITHUB_RUN_ID'])
         if os.environ.get('MESHIA_CACHE_DIAGNOSTICS') == 'true':
             from cache_diagnostics import Observer
-            cache_observer = Observer(home)
+            cache_observer = Observer(home, os.environ.get('MESHIA_DIAGNOSTIC_WORKSPACE_ID', ''))
             cache_observer.sample()
         record('installed_waiting_owner', **host, installed_modules=count,
                uid=os.getuid(), run_id=os.environ['GITHUB_RUN_ID'], **canary)

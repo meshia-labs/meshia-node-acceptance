@@ -6,6 +6,10 @@ on:
         description: Capture bounded synthetic mounted xcrun cache metadata
         type: boolean
         default: false
+      diagnostic_workspace_id:
+        description: Exact disposable workspace UUID for cache diagnostics only
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -27,6 +31,7 @@ jobs:
         env:
           PAIR_GRANT: ${{ secrets.MESHIA_MAC35_PAIR_GRANT }}
           MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
+          MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
         run: python3 production_install.py "$RUNNER_TEMP/meshia-production-35"
       - name: Always clean only this hosted installation
         if: always()

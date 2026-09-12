@@ -1,5 +1,5 @@
 """Read-only, bounded diagnostics for the synthetic mounted xcrun cache."""
-import errno,json,re,sqlite3,time
+import errno,json,re,sqlite3,time,uuid
 from pathlib import Path
 
 CACHE=re.compile(r'^xcrun_db(?:-[A-Za-z0-9]{1,40})?$')
@@ -21,8 +21,18 @@ def journal(database):
     return [{'kind':kind,'cache_path':cache_name(path),'cache_destination':cache_name(dest),
              'state':state,'attempt_count':attempts}
             for kind,path,dest,state,attempts in rows if cache_name(path) or cache_name(dest)]
+def target_database(home,workspace_id):
+    if str(uuid.UUID(workspace_id))!=workspace_id:raise ValueError('Invalid diagnostic workspace')
+    databases=list((home/'.meshia/accounts').glob('*/workspaces/'+workspace_id+'/fabric.db'))
+    if len(databases)!=1:raise ValueError('Diagnostic database absent or ambiguous')
+    database=databases[0]
+    if database.is_symlink() or any(p.is_symlink() for p in database.parents if p!=home.parent):
+        raise ValueError('Diagnostic database symlink')
+    return database
 class Observer:
-    def __init__(self,home):
+    def __init__(self,home,workspace_id):
+        if str(uuid.UUID(workspace_id))!=workspace_id:raise ValueError('Invalid diagnostic workspace')
+        self.workspace_id=workspace_id
         self.home=home;self.started=time.time();self.samples=[];self.events=[];self.seen=set()
         self.log=home/'.meshia/node.log';self.offset=self.log.stat().st_size if self.log.exists() else 0
     def sample(self):
@@ -31,9 +41,7 @@ class Observer:
             # Never walk the native mount from this diagnostics process: macOS
             # responsibility/TCC and filesystem timing belong to the actual
             # bounded native command, not an observer that could warm its cache.
-            databases=list((self.home/'.meshia/accounts').glob('*/workspaces/*/fabric.db'))
-            if len(databases)==1:snapshot['journal']=journal(databases[0])
-            else:snapshot['journal_unavailable']=True
+            snapshot['journal']=journal(target_database(self.home,self.workspace_id))
             if self.log.exists() and not self.log.is_symlink():
                 with self.log.open('rb') as stream:
                     if stream.seek(0,2)<self.offset:self.offset=0
