@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import subprocess
 import unittest
+from collections import deque
 
 import linux_fuse_acceptance as public
 
@@ -67,6 +68,32 @@ def main():
     assert sys.platform == 'linux' and os.getuid() != 0
     assert os.environ.get('GITHUB_ACTIONS') == 'true' and Path('/dev/fuse').is_char_device()
     receipt = public.verify_installed(directory)
+    from meshia_node.linux_fuse import LinuxInodeOperations
+    events = deque(maxlen=100)
+    original_getattr = LinuxInodeOperations.getattr
+    original_rename = LinuxInodeOperations.rename
+    def diagnostic_getattr(owner, path, fh=None):
+        result = original_getattr(owner, path, fh)
+        if path in owner._aliases:
+            events.append({'event': 'hidden_getattr', 'failed': path in owner._failed_retirements,
+                           'nlink': result['st_nlink'], 'size': result['st_size']})
+        return result
+    def diagnostic_rename(owner, old, new):
+        event = {'event': 'rename', 'old_hidden': '.fuse_hidden' in old,
+                 'new_hidden': '.fuse_hidden' in new, 'failed_before': len(owner._failed_retirements)}
+        try:
+            result = original_rename(owner, old, new)
+            event['success'] = True
+            return result
+        except BaseException:
+            event['success'] = False
+            raise
+        finally:
+            event['failed_after'] = len(owner._failed_retirements)
+            event['alias_count'] = len(owner._aliases)
+            events.append(event)
+    LinuxInodeOperations.getattr = diagnostic_getattr
+    LinuxInodeOperations.rename = diagnostic_rename
     receipt.update(source_candidate=False, public_artifact_acceptance=True,
                    uid=os.getuid(), kernel=os.uname().release,
                    authority='signed_loopback_fixture', actual_linux_fuse=True, production_enrollment=False)
@@ -74,6 +101,7 @@ def main():
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(PublicLinux))
     receipt.update(tests_run=result.testsRun, failures=len(result.failures), errors=len(result.errors),
                    skipped=len(result.skipped), passed=result.wasSuccessful() and result.testsRun == 9 and not result.skipped)
+    receipt.update(public_artifact_acceptance=False, callback_diagnostic=True, events=list(events))
     (directory / 'linux-fuse-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return 0 if receipt['passed'] else 1
 
