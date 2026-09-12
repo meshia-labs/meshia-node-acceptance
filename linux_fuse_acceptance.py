@@ -23,10 +23,10 @@ from production_install import VERSION, SOURCE, HASHES, fetch_exact
 
 def require_binding():
     names = ('release.json', f'meshia_node-{VERSION}-py3-none-any.whl')
-    if VERSION != '1.3.41' or not re.fullmatch(r'[0-9a-f]{40}', SOURCE):
-        raise ValueError('Linux41 release source is not bound')
+    if VERSION != '1.3.42' or not re.fullmatch(r'[0-9a-f]{40}', SOURCE):
+        raise ValueError('Linux42 release source is not bound')
     if any(not re.fullmatch(r'[0-9a-f]{64}', HASHES.get(name, '')) for name in names):
-        raise ValueError('Linux41 release artifacts are not bound')
+        raise ValueError('Linux42 release artifacts are not bound')
 
 
 def verify_installed(directory):

@@ -1,4 +1,4 @@
-"""Exact published Linux41 wheel acceptance with no source overlays."""
+"""Exact published Linux42 wheel acceptance with no source overlays."""
 import errno
 import json
 import os

@@ -13,13 +13,10 @@ import zipfile
 from acceptance import account, validate_owned, read_json, fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = '1.3.41'
-# Final artifacts bound; dispatch still requires verified public delivery.
-SOURCE = '4de0b28d5a8e8d410a9d9f79da4fb57aec921d17'
-HASHES = {
-    'release.json': 'f10c4fe47f5f84f234e35df16ba1a3234caa3f7129a560eb6a1d7aca2358bd5b',
-    'meshia_node-1.3.41-py3-none-any.whl': 'fa63cc38e1fa9f4d06426e5ac691425f9e54fa504382a5062349d29366e9da06',
-}
+VERSION = '1.3.42'
+# Source fixed; artifact hashes intentionally unbound pending notarization.
+SOURCE = 'a867659bcaa84cce687f4c1ec759273f0be50182'
+HASHES = {}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')

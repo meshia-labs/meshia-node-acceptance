@@ -28,7 +28,7 @@ class ReleaseBinding(unittest.TestCase):
 
     def test_exact_source_and_artifacts_are_required(self):
         with patch.object(acceptance, 'SOURCE', 'a' * 40), patch.object(acceptance, 'HASHES', {
-                'release.json': 'b' * 64, 'meshia_node-1.3.41-py3-none-any.whl': 'c' * 64}):
+                'release.json': 'b' * 64, 'meshia_node-1.3.42-py3-none-any.whl': 'c' * 64}):
             acceptance.require_binding()
 
     def test_eight_kernel_cases_remain_explicit(self):
