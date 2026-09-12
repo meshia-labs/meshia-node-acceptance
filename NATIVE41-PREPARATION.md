@@ -1,6 +1,7 @@
-# Mac41 kit — unbound, no dispatch
+# Mac41 kit — candidate bound, no dispatch
 
-Version1.3.41 has no source or artifact hash bindings yet. Root must supply and
+Version1.3.41 pins source4de0b28d5a8e8d410a9d9f79da4fb57aec921d17 and exact
+packaged artifact hashes. Local verified wheel has86 Python modules. Root must
 verify exact public41 release bytes before dispatch. Both the original mounted
 replacement probe and separate real TemporaryFile probe are unchanged from40.
 The manual workflow uses MESHIA_MAC41_PAIR_GRANT; owner state/deadline/workspace

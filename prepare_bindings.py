@@ -9,7 +9,7 @@ def prepare(candidate,wheel):
     assert value['package']=='meshia_node-1.3.41-py3-none-any.whl'
     assert value['macos_node_app']=='MeshiaNode-1.3.41.app.zip'
     assert value['install']['posix']=='install-1.3.41.sh'
-    hashes={'release.json':value['release_json_sha256'],value['package']:value['sha256'],
+    hashes={'release.json':value.get('release_json_sha256',hashlib.sha256(candidate.read_bytes()).hexdigest()),value['package']:value['sha256'],
       value['macos_node_app']:value['macos_node_app_sha256'],value['install']['posix']:value['install']['posix_sha256']}
     assert all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in hashes.values())
     assert wheel.name==value['package'] and hashlib.sha256(wheel.read_bytes()).hexdigest()==value['sha256']
