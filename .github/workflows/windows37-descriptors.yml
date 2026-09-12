@@ -1,0 +1,43 @@
+name: Windows37 public wheel descriptor qualification
+on:
+  push:
+    branches: [codex/windows37-descriptor-20260912]
+    paths:
+      - .github/workflows/windows37-descriptors.yml
+      - windows37_package.py
+      - test_windows37_descriptors.py
+permissions:
+  contents: read
+concurrency:
+  group: windows37-descriptors
+  cancel-in-progress: false
+jobs:
+  descriptors:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Download immutable public wheel
+        run: python windows37_package.py download
+      - name: Install canonical wheel and test runner
+        run: python -m pip install --disable-pip-version-check --retries 1 --timeout 30 windows37-evidence/meshia_node-1.3.37-py3-none-any.whl pytest==8.4.2
+      - name: Verify installed Windows wheel imports
+        run: python windows37_package.py verify
+      - name: Real Windows temporary-file qualification
+        timeout-minutes: 3
+        run: python -m pytest test_windows37_descriptors.py -q --junitxml=windows37-evidence/tests.xml
+      - name: Preserve bounded evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows37-descriptors-${{ github.run_id }}
+          path: |
+            windows37-evidence/installed.json
+            windows37-evidence/tests.xml
+          retention-days: 7
+          if-no-files-found: warn
