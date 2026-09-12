@@ -23,10 +23,10 @@ from production_install import VERSION, SOURCE, HASHES, fetch_exact
 
 def require_binding():
     names = ('release.json', f'meshia_node-{VERSION}-py3-none-any.whl')
-    if VERSION != '1.3.40' or not re.fullmatch(r'[0-9a-f]{40}', SOURCE):
-        raise ValueError('Linux40 release source is not bound')
+    if VERSION != '1.3.41' or not re.fullmatch(r'[0-9a-f]{40}', SOURCE):
+        raise ValueError('Linux41 release source is not bound')
     if any(not re.fullmatch(r'[0-9a-f]{64}', HASHES.get(name, '')) for name in names):
-        raise ValueError('Linux40 release artifacts are not bound')
+        raise ValueError('Linux41 release artifacts are not bound')
 
 
 def verify_installed(directory):
@@ -39,10 +39,15 @@ def verify_installed(directory):
         modules = [name for name in archive.namelist()
                    if name.startswith('meshia_node/') and name.endswith('.py')]
         assert len(modules) >= 80
+        installed_modules = {str(path.relative_to(package.parent)) for path in package.rglob('*.py')}
+        assert installed_modules == set(modules), 'Installed Python module inventory differs from the wheel'
+        module_sha256 = {}
         for name in modules:
             assert (package.parent / name).read_bytes() == archive.read(name), name
+            module_sha256[name] = hashlib.sha256(archive.read(name)).hexdigest()
     return {'version': VERSION, 'source_commit': SOURCE,
-            'wheel_sha256': HASHES[wheel.name], 'matched_python_modules': len(modules)}
+            'wheel_sha256': HASHES[wheel.name], 'matched_python_modules': len(modules),
+            'module_sha256': module_sha256}
 
 
 @contextmanager

@@ -1,6 +1,5 @@
-"""Source-candidate qualification, explicitly not public-artifact acceptance."""
+"""Exact published Linux41 wheel acceptance with no source overlays."""
 import errno
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,14 +9,7 @@ import unittest
 
 import linux_fuse_acceptance as public
 
-SOURCE = 'adae6708f05184aee09b387abe6ec5173580abf0'
-OVERLAYS = {
-    'fabric_mount.py': 'e0f641c50a9b683bef83eb6740b8099ab675f47cc0dc79766848b932aa9e5f70',
-    'linux_fuse.py': '886bf9184559c41bfe8f129f9b5bfc137d8895d8b84bb64cd5ca1a69a2492b50',
-}
-
-
-class CandidateLinux(public.LinuxFuse):
+class PublicLinux(public.LinuxFuse):
     def test_failed_replacement_retains_original_public_name(self):
         for continuation in ('rename_unlink', 'successful_retry'):
             with self.subTest(continuation=continuation):
@@ -75,21 +67,14 @@ def main():
     assert sys.platform == 'linux' and os.getuid() != 0
     assert os.environ.get('GITHUB_ACTIONS') == 'true' and Path('/dev/fuse').is_char_device()
     receipt = public.verify_installed(directory)
-    import meshia_node
-    package = Path(meshia_node.__file__).parent
-    for name, digest in OVERLAYS.items():
-        body = (Path(__file__).parent / 'candidate' / 'meshia_node' / name).read_bytes()
-        assert hashlib.sha256(body).hexdigest() == digest
-        (package / name).write_bytes(body)
-        assert hashlib.sha256((package / name).read_bytes()).hexdigest() == digest
-    receipt.update(source_candidate=True, public_artifact_acceptance=False, candidate_source=SOURCE,
-                   candidate_module_sha256=OVERLAYS, uid=os.getuid(), kernel=os.uname().release,
+    receipt.update(source_candidate=False, public_artifact_acceptance=True,
+                   uid=os.getuid(), kernel=os.uname().release,
                    authority='signed_loopback_fixture', actual_linux_fuse=True, production_enrollment=False)
     receipt['libfuse_version'] = subprocess.check_output(['fusermount', '--version'], text=True).strip()
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(CandidateLinux))
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(PublicLinux))
     receipt.update(tests_run=result.testsRun, failures=len(result.failures), errors=len(result.errors),
                    skipped=len(result.skipped), passed=result.wasSuccessful() and result.testsRun == 9 and not result.skipped)
-    (directory / 'linux-candidate-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    (directory / 'linux-fuse-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return 0 if receipt['passed'] else 1
 
 
