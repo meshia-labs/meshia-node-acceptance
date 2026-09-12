@@ -1,6 +1,9 @@
 # Private next-release Mac qualification
 
-No release version, source or artifact hashes are bound. No branch push,
+Privately bound to native1.3.37 sourcec126ddd811a09b361b4f0b1c9396ca1f1bf9160c,
+candidate8f31a9cf8a320bdcbf889b16e69a467167c0ad7b. The four exact artifact pins
+in production_install.py match the staged bytes and accepted/stapled notary
+receipt in /tmp/meshia-native37-release-20260913/candidate.json. No branch push,
 credentials, workspace creation, pairing or dispatch is authorized by this kit.
 The preceding native36 failure archive remains unchanged.
 
@@ -31,8 +34,8 @@ and the independently armed owner watchdog remains the external15-minute
 cleanup bound. Root/host/workspace protections and generation-fenced revocation
 are unchanged; the next owner kit must bind its new exact workspace and source.
 
-After a native fix and final signed artifact pins are ready, root separately
-approves config binding/publication and one fresh run. Update the owner collector
+After root verifies public delivery of these exact bytes, root separately
+approves kit publication and one fresh run. The owner collector must
 to read installed_waiting_owner from the completed install step and
 service_and_mount_stopped from the separate owner-wait step. Require their
 ordering around the command and actual revocation when joining final evidence.

@@ -13,9 +13,14 @@ import zipfile
 from acceptance import account, validate_owned, read_json, fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = None  # Bind only after root approves the next exact signed release.
-SOURCE = None
-HASHES = {}
+VERSION = '1.3.37'
+SOURCE = 'c126ddd811a09b361b4f0b1c9396ca1f1bf9160c'
+HASHES = {
+    'release.json':'2917dc82ab38d1c1bb98d75793af7509653a726e526c1120667cd3d8146f75a8',
+    'install-1.3.37.sh':'4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
+    'meshia_node-1.3.37-py3-none-any.whl':'fb244ca7e315414322751f96549a703b2d3abace19bd4cf573e9e1941663cb6e',
+    'MeshiaNode-1.3.37.app.zip':'262bae6a523fd6e6a95f3481e30312151968f2ad091fd86427a3d9d5b978bc45',
+}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')
