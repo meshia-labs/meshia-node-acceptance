@@ -94,7 +94,11 @@ class LinuxInodeOperations:
             if handle is None:
                 raise self.operations.fuse_error(errno.ENOENT)
             attrs = dict(self.operations.getattr(None, handle))
-            attrs["st_nlink"] = 0
+            # libfuse decrements a positive link count on its hidden inode.
+            # A failed replacement still has one real public link; compensate
+            # only at this private callback boundary so kernel fstat sees one.
+            with self._lock:
+                attrs["st_nlink"] = 2 if path in self._failed_retirements else 0
             return attrs
         return self.operations.getattr(path, fh)
 
@@ -130,6 +134,12 @@ class LinuxInodeOperations:
                         self._failed_retirements[hidden] = public
             raise
         with self._lock:
+            if old != new:
+                for hidden, public in list(self._failed_retirements.items()):
+                    if public == new:
+                        del self._failed_retirements[hidden]
+                    elif public == old:
+                        self._failed_retirements[hidden] = new
             for handle, path in list(self._paths.items()):
                 if path == old:
                     self._paths[handle] = new
@@ -144,7 +154,12 @@ class LinuxInodeOperations:
                 del self._aliases[path]
                 self._failed_retirements.pop(path, None)
                 return 0
-        return self.operations.unlink(path)
+        result = self.operations.unlink(path)
+        with self._lock:
+            for hidden, public in list(self._failed_retirements.items()):
+                if public == path:
+                    del self._failed_retirements[hidden]
+        return result
 
     def release(self, path: str | None, fh: int) -> Any:
         try:

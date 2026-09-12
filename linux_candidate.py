@@ -10,19 +10,25 @@ import unittest
 
 import linux_fuse_acceptance as public
 
-SOURCE = '06adc2e1b17fc92b2652d6b39e1d61ee89bc81b7'
+SOURCE = 'adae6708f05184aee09b387abe6ec5173580abf0'
 OVERLAYS = {
     'fabric_mount.py': 'e0f641c50a9b683bef83eb6740b8099ab675f47cc0dc79766848b932aa9e5f70',
-    'linux_fuse.py': '2905d79b4e5d45e0ec81b5de801effa67ed19fbf186cad752d462c0b17cb2e7e',
+    'linux_fuse.py': '886bf9184559c41bfe8f129f9b5bfc137d8895d8b84bb64cd5ca1a69a2492b50',
 }
 
 
 class CandidateLinux(public.LinuxFuse):
     def test_failed_replacement_retains_original_public_name(self):
+        for continuation in ('rename_unlink', 'successful_retry'):
+            with self.subTest(continuation=continuation):
+                self.failed_replacement_continuation(continuation)
+
+    def failed_replacement_continuation(self, continuation):
         original = b'original destination bytes'
-        with public.mounted(original, materialize=True) as (root, *_):
+        with public.mounted(original, materialize=True) as (root, plane, coordinator, database, workspace, settled):
             destination = root / 'data.bin'
             writer = os.open(destination, os.O_RDWR)
+            reader = None
             try:
                 os.pwrite(writer, b'EDIT', 0)
                 expected = b'EDIT' + original[4:]
@@ -33,11 +39,34 @@ class CandidateLinux(public.LinuxFuse):
                 self.assertEqual(error.exception.errno, errno.EBUSY)
                 self.assertEqual(destination.read_bytes(), expected)
                 self.assertEqual(os.fstat(writer).st_size, len(expected))
+                self.assertEqual(os.fstat(writer).st_nlink, 1)
                 self.assertEqual(os.pread(writer, 100, 0), expected)
                 self.assertEqual(source.read_bytes(), b'replacement')
+                if continuation == 'rename_unlink':
+                    moved = root / 'moved.bin'
+                    os.rename(destination, moved)
+                    self.assertEqual(moved.read_bytes(), expected)
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(os.fstat(writer).st_nlink, 1)
+                    moved.unlink()
+                    self.assertFalse(moved.exists())
+                    self.assertEqual(os.fstat(writer).st_nlink, 0)
+                    self.assertEqual(os.pread(writer, 100, 0), expected)
+                else:
+                    reader = os.open(destination, os.O_RDONLY)
+                    os.close(writer)
+                    writer = None
+                    settled(lambda: not database.list_operations())
+                    os.replace(source, destination)
+                    self.assertEqual(destination.read_bytes(), b'replacement')
+                    self.assertEqual(os.fstat(reader).st_nlink, 0)
+                    self.assertEqual(os.pread(reader, 100, 0), expected)
                 self.assertFalse(any(path.name.startswith('.fuse_hidden') for path in root.iterdir()))
             finally:
-                os.close(writer)
+                if reader is not None:
+                    os.close(reader)
+                if writer is not None:
+                    os.close(writer)
 
 
 def main():
