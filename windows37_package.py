@@ -10,11 +10,11 @@ import sys
 import urllib.request
 import zipfile
 
-NAME = "meshia_node-1.3.40-py3-none-any.whl"
-PUBLIC_SHA = "89a180456175a2568229daa5efe01e8613ec01e00822b78bfe4f30f2012257a9"
-SOURCE = "844b6487dcf6ba93509bf54986ff831c0a093729"
+NAME = "meshia_node-1.3.41-py3-none-any.whl"
+PUBLIC_SHA = None
+SOURCE = None
 if PUBLIC_SHA is None or SOURCE is None:
-    raise SystemExit("NATIVE40_RELEASE_UNBOUND: pin exact public wheel and source before dispatch")
+    raise SystemExit("NATIVE41_RELEASE_UNBOUND: pin exact public wheel and source before dispatch")
 directory = Path("windows37-evidence")
 directory.mkdir(exist_ok=True)
 if sys.argv[1] == "download":
@@ -29,7 +29,7 @@ elif sys.argv[1] == "verify":
     from meshia_node.winsec import current_user_sid, is_owner_restricted, ensure_owner_restricted
     assert sys.platform == "win32"
     assert not hasattr(os, "pread"), "Windows must exercise portable seek/read"
-    assert importlib.metadata.version("meshia-node") == "1.3.40"
+    assert importlib.metadata.version("meshia-node") == "1.3.41"
     assert "site-packages" in str(Path(meshia_node.__file__).resolve())
     assert "workspace_win" in WorkspaceBoundary.__module__
     assert not ctypes.windll.shell32.IsUserAnAdmin(), "Qualification requires an ordinary user"
@@ -40,7 +40,11 @@ elif sys.argv[1] == "verify":
     assert hashlib.sha256((directory / NAME).read_bytes()).hexdigest() == PUBLIC_SHA
     with zipfile.ZipFile(directory / NAME) as wheel:
         modules = [name for name in wheel.namelist() if name.startswith("meshia_node/") and name.endswith(".py")]
-        assert len(modules) > 3
+        assert 'meshia_node/__init__.py' in modules and len(modules)==len(set(modules))
+        assert all('..' not in Path(name).parts for name in modules)
+        root=Path(meshia_node.__file__).parent.parent
+        actual={p.relative_to(root).as_posix() for p in (root/'meshia_node').rglob('*.py')}
+        assert actual==set(modules), 'Installed module inventory differs from pinned wheel'
         for module in modules:
             assert (Path(meshia_node.__file__).parent.parent / module).read_bytes() == wheel.read(module)
     (directory / "installed.json").write_text(json.dumps({
