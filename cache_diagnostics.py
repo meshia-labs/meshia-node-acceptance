@@ -5,7 +5,7 @@ from pathlib import Path
 
 CACHE=re.compile(r'^xcrun_db(?:-[A-Za-z0-9]{1,40})?$')
 OPS={'rename','create','write','flush','fsync','release','getattr'}
-BUSY_REASONS=set('destination_busy destination_publishing destination_changed destination_handoff_failed destination_dirty_cache source_changed source_writer source_unstable source_publishing publication_pending directory_pending directory_writer other_busy'.split())
+BUSY_REASONS=set('destination_busy destination_publishing destination_changed destination_handoff_failed destination_dirty_cache source_changed source_writer source_unstable source_publishing publication_pending directory_pending directory_writer other_busy upload_pending destination_pending'.split())
 BUSY_FLAGS=set('source_cached destination_cached source_session destination_session destination_modified destination_publishing destination_open_writer destination_open_reader'.split())
 def public_event(value):
     if value.get('event')=='fabric_mount_rename_busy':
