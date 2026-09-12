@@ -4,7 +4,7 @@ import owner_watchdog as w
 
 class Watchdog(unittest.TestCase):
     def setUp(self):
-        self.b={'workspace_id':'11111111-1111-4111-8111-111111111111','version':'1.3.40',
+        self.b={'workspace_id':'11111111-1111-4111-8111-111111111111','version':'1.3.41',
           'protected_primary_host':w.PRIMARY,'root_authorized':True,'delete_storage':True,'created_at':0,'deadline':100}
         self.state={};self.calls=[];self.cleanup={'session_id':self.b['workspace_id']}
     def call(self,name,args):

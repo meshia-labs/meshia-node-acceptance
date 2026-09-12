@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: macos-production-install-40
+  group: macos-production-install-41
   cancel-in-progress: false
 jobs:
   macos:
@@ -29,8 +29,8 @@ jobs:
       - name: Install canonical release and publish verified checkpoint
         timeout-minutes: 7
         env:
-          PAIR_GRANT: ${{ !inputs.cache_diagnostics && secrets.MESHIA_MAC40_PAIR_GRANT || '' }}
-          CACHE_PAIR_GRANT: ${{ inputs.cache_diagnostics && secrets.MESHIA_MAC40_PAIR_GRANT || '' }}
+          PAIR_GRANT: ${{ !inputs.cache_diagnostics && secrets.MESHIA_MAC41_PAIR_GRANT || '' }}
+          CACHE_PAIR_GRANT: ${{ inputs.cache_diagnostics && secrets.MESHIA_MAC41_PAIR_GRANT || '' }}
           MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
           MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
         run: python3 production_install.py install "$RUNNER_TEMP/meshia-production-next"

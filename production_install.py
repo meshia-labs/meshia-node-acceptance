@@ -13,15 +13,10 @@ import zipfile
 from acceptance import account, validate_owned, read_json, fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = '1.3.40'
+VERSION = '1.3.41'
 # Candidate pinned; root must verify exact public delivery before dispatch.
-SOURCE = '844b6487dcf6ba93509bf54986ff831c0a093729'
-HASHES = {
-    'release.json':'62dd5078807e41f9fde6191d3312225e42a20324cb47d3fecc6961b460dd7a80',
-    'install-1.3.40.sh':'4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
-    'meshia_node-1.3.40-py3-none-any.whl':'89a180456175a2568229daa5efe01e8613ec01e00822b78bfe4f30f2012257a9',
-    'MeshiaNode-1.3.40.app.zip':'5ab8359ce6928bbd267d4656b48ef842ff3052625d45e37c0fe452b2da5f28d1',
-}
+SOURCE = None
+HASHES = {}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')
@@ -121,7 +116,10 @@ def execute(directory):
             "root=pathlib.Path(meshia_node.__file__).parent.parent\n"
             "with zipfile.ZipFile(sys.argv[1]) as z:\n"
             " names=[n for n in z.namelist() if n.startswith('meshia_node/') and n.endswith('.py')]\n"
-            " assert len(names)==85 and all((root/n).read_bytes()==z.read(n) for n in names)\n"
+            " assert 'meshia_node/__init__.py' in names and len(names)==len(set(names))\n"
+            " assert all('..' not in pathlib.PurePosixPath(n).parts for n in names)\n"
+            " actual={p.relative_to(root).as_posix() for p in (root/'meshia_node').rglob('*.py')}\n"
+            " assert actual==set(names) and all((root/n).read_bytes()==z.read(n) for n in names)\n"
             " print(len(names))", wheel]))
         config = json.loads((home / '.meshia/config.json').read_text())
         if config.get('api_url') != ORIGIN:
