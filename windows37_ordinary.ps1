@@ -23,6 +23,9 @@ try {
     $Body = @'
 $ErrorActionPreference = 'Stop'
 $UserRoot = [Environment]::GetFolderPath('UserProfile')
+# The parent is PowerShell 7; the credentialed child is Windows PowerShell.
+# Use the child's standard modules rather than inheriting the parent's path.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 if (-not $UserRoot -or $UserRoot -match '(?i)runneradmin') { throw 'Ordinary profile not loaded.' }
 $env:USERPROFILE = $UserRoot
 $env:LOCALAPPDATA = Join-Path $UserRoot 'AppData\Local'
