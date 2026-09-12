@@ -13,13 +13,13 @@ import zipfile
 from acceptance import fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = '1.3.35'
-SOURCE = 'de2e46b051946f4e8897767589bd656bf21ed783'
+VERSION = '1.3.36'
+SOURCE = 'd9924fa0748d10607196c4c6b4e686bb639cb7da'
 HASHES = {
-    'MeshiaNode-1.3.35.app.zip': '3021f9bb5a543c45e8beedd0e0d473c2e4e8ff5c0ba2bba09410d4155eb0d69a',
-    'release.json': 'e7f80910aeceb9c58d6df4cf0a5560641d02fcf3d9f14565fc60cd49bf144490',
-    'install-1.3.35.sh': '4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
-    'meshia_node-1.3.35-py3-none-any.whl': '549d7ac7e07158922a6cc589fe679add2a8449a0059b5610152afe0b43e411f5',
+    'MeshiaNode-1.3.36.app.zip': 'fa22bba026e08832b348a52d62b3f483c827533c6b92e7389a60f487262c2dbd',
+    'release.json': 'fce566168287650477d773233313dc675880cd199430f3059db9811b2ffb647e',
+    'install-1.3.36.sh': '4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
+    'meshia_node-1.3.36-py3-none-any.whl': 'b98f46f1711d24d5748cefafac5f6ca88862f394dea128ac115075f4b932a86a',
 }
 
 def fetch_exact(name, directory):
@@ -87,9 +87,9 @@ def execute(directory):
         manifest = json.loads(fetch_exact('release.json', directory).read_text())
         if manifest.get('source_commit') != SOURCE or manifest.get('version') != VERSION:
             raise ValueError('Release identity mismatch')
-        installer = fetch_exact('install-1.3.35.sh', directory)
-        wheel = fetch_exact('meshia_node-1.3.35-py3-none-any.whl', directory)
-        archive = fetch_exact('MeshiaNode-1.3.35.app.zip', directory)
+        installer = fetch_exact('install-1.3.36.sh', directory)
+        wheel = fetch_exact('meshia_node-1.3.36-py3-none-any.whl', directory)
+        archive = fetch_exact('MeshiaNode-1.3.36.app.zip', directory)
         write_json(directory / 'owned.json', {'run_id': os.environ['GITHUB_RUN_ID'],
                    'uid': os.getuid(), 'home': str(home), 'fresh_installation_claimed': True})
         environment = {k: v for k, v in os.environ.items()

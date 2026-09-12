@@ -41,12 +41,12 @@ class ProductionInstall(unittest.TestCase):
 
     def test_wrong_delivery_bytes_never_written(self):
         class Response:
-            url = p.ORIGIN + '/meshia-node/install-1.3.35.sh'
+            url = p.ORIGIN + '/meshia-node/install-1.3.36.sh'
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def read(self, *args): return b'wrong'
         with tempfile.TemporaryDirectory() as path, patch.object(p.urllib.request, 'urlopen', return_value=Response()):
-            with self.assertRaises(ValueError): p.fetch_exact('install-1.3.35.sh', Path(path))
+            with self.assertRaises(ValueError): p.fetch_exact('install-1.3.36.sh', Path(path))
             self.assertEqual(list(Path(path).iterdir()), [])
 
     def test_primary_refused_before_network(self):
