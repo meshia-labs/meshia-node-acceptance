@@ -1,4 +1,4 @@
-name: Windows37 public wheel descriptor qualification
+name: Windows retained descriptor qualification
 on:
   push:
     branches: [codex/windows37-descriptor-20260912]
@@ -7,6 +7,7 @@ on:
       - windows37_package.py
       - test_windows37_descriptors.py
       - windows37_ordinary.ps1
+      - candidate-wheel/**
 permissions:
   contents: read
 concurrency:
@@ -27,6 +28,8 @@ jobs:
         run: python windows37_package.py download
       - name: Install canonical wheel and test runner
         run: python -m pip install --disable-pip-version-check --retries 1 --timeout 30 windows37-evidence/meshia_node-1.3.37-py3-none-any.whl pytest==8.4.2
+      - name: Install exact unpublished share-delete candidate
+        run: python windows37_package.py candidate
       - name: Ordinary Windows temporary-file qualification
         timeout-minutes: 6
         run: ./windows37_ordinary.ps1
