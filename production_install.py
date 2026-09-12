@@ -63,7 +63,10 @@ def finish_receipt(receipt, cleanup_result):
 def execute(directory):
     directory.mkdir(parents=True, exist_ok=True)
     home = fresh_account()  # Refuses the primary Mac and every non-hosted account.
-    grant = os.environ.pop('PAIR_GRANT', '')
+    normal_grant = os.environ.pop('PAIR_GRANT', '')
+    cache_grant = os.environ.pop('CACHE_PAIR_GRANT', '')
+    grant = cache_grant if os.environ.get('MESHIA_CACHE_DIAGNOSTICS') == 'true' else normal_grant
+    normal_grant = cache_grant = ''
     if not grant:
         raise ValueError('Missing one-use pairing grant')
     started = time.monotonic()

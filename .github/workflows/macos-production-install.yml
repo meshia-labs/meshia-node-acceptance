@@ -29,7 +29,8 @@ jobs:
       - name: Install public35 and await owner checks
         timeout-minutes: 12
         env:
-          PAIR_GRANT: ${{ secrets.MESHIA_MAC35_PAIR_GRANT }}
+          PAIR_GRANT: ${{ !inputs.cache_diagnostics && secrets.MESHIA_MAC35_PAIR_GRANT || '' }}
+          CACHE_PAIR_GRANT: ${{ inputs.cache_diagnostics && secrets.MESHIA_MAC35_CACHE_PAIR_GRANT || '' }}
           MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
           MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
         run: python3 production_install.py "$RUNNER_TEMP/meshia-production-35"
