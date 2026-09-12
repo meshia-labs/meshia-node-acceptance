@@ -9,6 +9,10 @@ The preceding native36 failure archive remains unchanged.
 
 The workflow now finishes the canonical install step immediately after its
 verified checkpoint. This publishes the step log and summary before commands.
+It then uploads only the sanitized installed-checkpoint.json using pinned
+actions/upload-artifact v4.6.2, with one-day retention. The owner downloads that
+artifact through ordinary authenticated GitHub REST while the job waits;
+neither browser login nor unfinished job-log availability is a readiness gate.
 The checkpoint explicitly includes host/run/UID,85module verification, codesign,
 stapled ticket, Gatekeeper and exact native executable comparison. The next step
 waits for owner commands and normal account revocation, using only the owned

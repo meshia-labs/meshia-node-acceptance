@@ -84,6 +84,9 @@ class ProductionInstall(unittest.TestCase):
             with patch.object(p,'fresh_account',return_value=home),patch.object(p,'VERSION','test'),patch.object(p,'SOURCE','synthetic-source'),patch.object(p,'HASHES',{str(i):str(i) for i in range(4)}),patch.object(p,'fetch_exact',side_effect=fetch),patch.object(p,'run',side_effect=run),patch.object(p,'assess_gatekeeper'),patch.object(p,'mounts',return_value=[{'synthetic':True}]),patch.object(p,'cleanup') as cleanup,patch.dict(os.environ,{'PAIR_GRANT':'synthetic','GITHUB_RUN_ID':'123','MESHIA_CACHE_DIAGNOSTICS':'false'}):
                 self.assertEqual(p.execute(out),0);cleanup.assert_not_called()
             receipt=json.loads((out/'receipt.json').read_text())
+            checkpoint=json.loads((out/'installed-checkpoint.json').read_text())
+            self.assertEqual(checkpoint['steps'],receipt['steps'])
+            self.assertNotIn('PAIR_GRANT',(out/'installed-checkpoint.json').read_text())
             self.assertTrue(receipt['installation_ready'])
             self.assertFalse(receipt['local_install_and_closure_passed'])
             stage=receipt['steps'][-1]

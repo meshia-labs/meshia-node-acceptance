@@ -34,6 +34,13 @@ jobs:
           MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
           MESHIA_DIAGNOSTIC_WORKSPACE_ID: ${{ inputs.diagnostic_workspace_id }}
         run: python3 production_install.py install "$RUNNER_TEMP/meshia-production-next"
+      - name: Publish sanitized install checkpoint for owner API read
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installed-checkpoint
+          path: ${{ runner.temp }}/meshia-production-next/installed-checkpoint.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Await owner checks and revocation
         timeout-minutes: 11
         env:

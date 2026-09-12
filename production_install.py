@@ -135,6 +135,8 @@ def execute(directory):
                uid=os.getuid(), run_id=os.environ['GITHUB_RUN_ID'],
                codesign_verified=True, notarization_ticket_valid=True,
                gatekeeper_accepted=True, native_executable_matched=True, **canary)
+        from report import public
+        write_json(directory/'installed-checkpoint.json',public(receipt))
         installation_ready = True
     except Exception as error:
         receipt['failure'] = {'error_type': type(error).__name__}
