@@ -22,6 +22,9 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'mounted', 'state', 'workspace_execution', 'present', 'ready',
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
+SAFE_KEYS.add('host_id')
+SAFE_KEYS.update(('canary_relative_path', 'canary_expected_content',
+                 'local_install_and_closure_passed', 'requires_owner_receipt'))
 SAFE_KEYS.update(('head', 'range_head', 'not_modified'))
 SAFE_KEYS.update(('finite_body', 'negotiated_read_bytes', 'finite_response_bytes',
                  'finite_read_count', 'largest_read_bytes', 'finite_response_sha256'))
@@ -68,7 +71,7 @@ def main(directory):
     print(rendered)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write('### Exact 1.3.30 acceptance\n\n```json\n' + rendered + '\n```\n')
+            output.write('### Exact macOS acceptance\n\n```json\n' + rendered + '\n```\n')
 
 if __name__ == '__main__':
     main(sys.argv[1])

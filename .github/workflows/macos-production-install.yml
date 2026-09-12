@@ -1,0 +1,31 @@
+name: Current public Mac installation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-production-install-35
+  cancel-in-progress: false
+jobs:
+  macos:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Check isolated production profile
+        run: python3 -m unittest -v test_production_install
+      - name: Install public35 and await owner checks
+        timeout-minutes: 12
+        env:
+          PAIR_GRANT: ${{ secrets.MESHIA_MAC35_PAIR_GRANT }}
+        run: python3 production_install.py "$RUNNER_TEMP/meshia-production-35"
+      - name: Always clean only this hosted installation
+        if: always()
+        timeout-minutes: 2
+        run: python3 acceptance.py cleanup --directory "$RUNNER_TEMP/meshia-production-35"
+      - name: Publish sanitized receipt
+        if: always()
+        run: python3 report.py "$RUNNER_TEMP/meshia-production-35"
