@@ -43,10 +43,13 @@ def replace(local):
     backend, workspace, original = local
     reader = backend.open("/Research/dest", os.O_RDONLY)
     workspace.write_file("temp", b"new shorter bytes")
-    # Calls the actual pin-before-replacement primitive. os.replace is the
-    # real Windows namespace operation; no mock can bypass share-delete.
-    backend._replace_pristine_rename_destination("dest",
-        lambda: os.replace(workspace.root / "temp", workspace.root / "dest"))
+    # Use the exact Windows publication primitive, including its source/target
+    # identity fences and FileRenameInfoEx POSIX replacement semantics.
+    from meshia_node.workspace_win import _publish_windows_mount_stage
+    source_identity = workspace.stat_fingerprint("temp")
+    target_identity = workspace.stat_fingerprint("dest")
+    backend._replace_pristine_rename_destination("dest", lambda: _publish_windows_mount_stage(
+        str(workspace.root / "temp"), str(workspace.root / "dest"), source_identity, target_identity))
     pin = backend._handles[reader].retired_local
     assert pin is not None
     assert (workspace.root / "dest").read_bytes() == b"new shorter bytes"

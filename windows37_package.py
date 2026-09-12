@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+import zipfile
 
 NAME = "meshia_node-1.3.37-py3-none-any.whl"
 PUBLIC_SHA = "fb244ca7e315414322751f96549a703b2d3abace19bd4cf573e9e1941663cb6e"
@@ -43,11 +44,18 @@ elif sys.argv[1] == "verify":
     state.mkdir()
     ensure_owner_restricted(state)
     assert is_owner_restricted(state), "Actual owner must match the current ordinary SID"
-    assert hashlib.sha256((directory / NAME).read_bytes()).hexdigest() == SHA
+    artifact = os.environ["MESHIA_DESCRIPTOR_ARTIFACT"]
+    assert artifact in ("public", "candidate")
+    expected_sha = PUBLIC_SHA if artifact == "public" else SHA
+    expected_source = "c126ddd811a09b361b4f0b1c9396ca1f1bf9160c" if artifact == "public" else SOURCE
+    assert hashlib.sha256((directory / NAME).read_bytes()).hexdigest() == expected_sha
+    with zipfile.ZipFile(directory / NAME) as wheel:
+        for module in ("fabric_mount.py", "workspace.py", "workspace_win.py"):
+            assert (Path(meshia_node.__file__).parent / module).read_bytes() == wheel.read("meshia_node/" + module)
     (directory / "installed.json").write_text(json.dumps({
         "schema": "meshia.windows_descriptor_qualification.v1", "package": NAME,
-        "qualification_artifact": "unpublished_candidate", "baseline_public_sha256": PUBLIC_SHA,
-        "sha256": SHA, "source_commit": SOURCE, "platform": platform.platform(),
+        "qualification_artifact": artifact, "baseline_public_sha256": PUBLIC_SHA,
+        "sha256": expected_sha, "source_commit": expected_source, "platform": platform.platform(),
         "python": platform.python_version(), "workspace_boundary": WorkspaceBoundary.__module__,
         "portable_pread": True, "paired": False, "mount_started": False,
         "current_sid": current_user_sid(), "state_owner_matches_current_sid": True, "admin": False,
