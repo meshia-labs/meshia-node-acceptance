@@ -5,7 +5,15 @@ from pathlib import Path
 
 CACHE=re.compile(r'^xcrun_db(?:-[A-Za-z0-9]{1,40})?$')
 OPS={'rename','create','write','flush','fsync','release','getattr'}
+BUSY_REASONS=set('destination_busy destination_publishing destination_changed destination_handoff_failed destination_dirty_cache source_changed source_writer source_unstable source_publishing publication_pending directory_pending directory_writer other_busy'.split())
+BUSY_FLAGS=set('source_cached destination_cached source_session destination_session destination_modified destination_publishing destination_open_writer destination_open_reader'.split())
 def public_event(value):
+    if value.get('event')=='fabric_mount_rename_busy':
+        if value.get('reason') not in BUSY_REASONS:return None
+        result={'operation':'rename','error_code':'EBUSY','errno':16,'reason':value['reason']}
+        if isinstance(value.get('at'),str) and re.fullmatch(r'[0-9T:.+Z-]{10,40}',value['at']):result['at']=value['at']
+        result.update({key:value[key] for key in BUSY_FLAGS if type(value.get(key)) is bool})
+        return result
     if value.get('event')!='fabric_mount_operation_failed' or value.get('operation') not in OPS:return None
     code=value.get('error_code')
     if not isinstance(code,str) or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,79}',code):return None

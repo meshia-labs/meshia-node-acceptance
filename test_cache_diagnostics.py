@@ -3,6 +3,15 @@ from pathlib import Path
 from cache_diagnostics import public_event,journal,cache_name,target_database,error_enum
 from report import public
 class Diagnostics(unittest.TestCase):
+    def test_busy_reason_and_flags_are_strict_and_survive_projection(self):
+        value={'event':'fabric_mount_rename_busy','reason':'destination_publishing',
+          'source_cached':False,'destination_open_reader':True,'destination_session':'private',
+          'destination_open_writer':1,'path':'private','error':'private','token':'private'}
+        result=public_event(value)
+        self.assertEqual(result,{'operation':'rename','error_code':'EBUSY','errno':16,
+          'reason':'destination_publishing','source_cached':False,'destination_open_reader':True})
+        self.assertEqual(public(result),result)
+        self.assertIsNone(public_event({**value,'reason':'private'}))
     def test_singleton_requires_exact_private_authenticated_binding(self):
         target='11111111-1111-4111-8111-111111111111';other='22222222-2222-4222-8222-222222222222'
         with tempfile.TemporaryDirectory() as directory:
