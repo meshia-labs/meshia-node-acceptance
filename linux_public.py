@@ -50,6 +50,9 @@ class PublicLinux(public.LinuxFuse):
                     os.close(writer)
                     writer = None
                     settled(lambda: not database.list_operations())
+                    # Prime the retained inode's linked metadata immediately
+                    # before mutation; the post-replace assertion is unchanged.
+                    self.assertEqual(os.fstat(reader).st_nlink, 1)
                     os.replace(source, destination)
                     self.assertEqual(destination.read_bytes(), b'replacement')
                     self.assertEqual(os.fstat(reader).st_nlink, 0)
