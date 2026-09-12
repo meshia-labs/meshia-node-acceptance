@@ -1,6 +1,11 @@
 name: Current public Mac installation
 on:
   workflow_dispatch:
+    inputs:
+      cache_diagnostics:
+        description: Capture bounded synthetic mounted xcrun cache metadata
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -16,11 +21,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Check isolated production profile
-        run: python3 -m unittest -v test_production_install
+        run: python3 -m unittest -v test_production_install test_cache_diagnostics
       - name: Install public35 and await owner checks
         timeout-minutes: 12
         env:
           PAIR_GRANT: ${{ secrets.MESHIA_MAC35_PAIR_GRANT }}
+          MESHIA_CACHE_DIAGNOSTICS: ${{ inputs.cache_diagnostics }}
         run: python3 production_install.py "$RUNNER_TEMP/meshia-production-35"
       - name: Always clean only this hosted installation
         if: always()

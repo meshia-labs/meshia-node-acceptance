@@ -67,6 +67,7 @@ def execute(directory):
     if not grant:
         raise ValueError('Missing one-use pairing grant')
     started = time.monotonic()
+    cache_observer = None
     receipt = {'local_install_and_closure_passed': False, 'requires_owner_receipt': True,
                'source_commit': SOURCE, 'package_version': VERSION,
                'scope': 'hosted_macos_production_install', 'production_account_tested': False,
@@ -124,11 +125,16 @@ def execute(directory):
             raise ValueError('No native mount')
         receipt['production_account_tested'] = True
         canary = personal_canary(home, os.environ['GITHUB_RUN_ID'])
+        if os.environ.get('MESHIA_CACHE_DIAGNOSTICS') == 'true':
+            from cache_diagnostics import Observer
+            cache_observer = Observer(home)
+            cache_observer.sample()
         record('installed_waiting_owner', **host, installed_modules=count,
                uid=os.getuid(), run_id=os.environ['GITHUB_RUN_ID'], **canary)
         # Root performs exact-host normal MCP checks and revocation. This job never
         # broadens permissions or declares those remote checks passed itself.
         while time.monotonic() - started < 660:
+            if cache_observer is not None:cache_observer.sample()
             status = json.loads(run([cli, '--json', 'status'], timeout=15))
             if local_closed(status, mounts(home / 'Meshia')):
                 record('service_and_mount_stopped', **host)
@@ -141,6 +147,9 @@ def execute(directory):
         receipt['failure'] = {'error_type': type(error).__name__}
     finally:
         grant = ''
+        if cache_observer is not None:
+            cache_observer.sample()
+            receipt['cache_diagnostics'] = cache_observer.result()
         try:
             result = cleanup(directory)
         except Exception as error:
