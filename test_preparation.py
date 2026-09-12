@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 import acceptance
 import cow_acceptance
@@ -15,6 +17,80 @@ import native_delta_acceptance as delta
 
 
 class Preparation(unittest.TestCase):
+    def test_access_transition_timeout_and_bad_prior_are_safe_and_release_fixture(self):
+        from fixture_plane import AccessTransitionPlane
+        plane = AccessTransitionPlane()
+        states = []
+        def app(_mode, *, after_reserve):
+            after_reserve()
+            self.fail('Registration must not proceed before adoption')
+        def timeout(*_args):
+            raise AssertionError('Timed out: delayed access heartbeat applied')
+        with self.assertRaisesRegex(AssertionError, '^ACCESS_TRANSITION_ADOPTION_TIMEOUT$'):
+            delta.exercise_access_transition(plane, 'limited', configured_access=lambda: 'full',
+                native_app=app, wait=timeout, progress=lambda **s: states.append(s))
+        self.assertIsNone(plane._heartbeat_access)
+        self.assertEqual(states[-1]['assertion'], 'ACCESS_TRANSITION_ADOPTION_TIMEOUT')
+        self.assertFalse(states[-1]['condition_passed'])
+        with self.assertRaisesRegex(AssertionError, '^ACCESS_TRANSITION_PRIOR_MODE$'):
+            delta.exercise_access_transition(plane, 'limited', configured_access=lambda: 'private-sentinel',
+                native_app=app, wait=timeout, progress=lambda **s: states.append(s))
+        self.assertNotIn('private-sentinel', json.dumps(report.public({'access_transition': states[-1]})))
+
+    def test_real_signed_access_adoption_at_normal_heartbeat_cadence(self):
+        acceptance.verify_release()
+        sys.path.insert(0, str(acceptance.ROOT / 'release/meshia_node-1.3.30-py3-none-any.whl'))
+        from fixture_plane import AccessTransitionPlane
+        from meshia_node.client import SignedClient
+        from meshia_node.config import ConfigStore, Paths
+        from meshia_node.enroll import enroll
+        from meshia_node.identity import DeviceIdentity
+        from meshia_node.attach import attach, heartbeat, HEARTBEAT_INTERVAL_SECONDS
+        plane = AccessTransitionPlane(); plane.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                paths = Paths(Path(directory) / 'node')
+                config = enroll(paths=paths, api_url=plane.origin, pairing_code=plane.mint_pairing_code(),
+                                access='files', workspace=Path(directory) / 'workspace')
+                store = ConfigStore(paths)
+                client = SignedClient(store, DeviceIdentity.load_or_create(paths.identity_dir))
+                attach(client, store); heartbeat(client, store)
+                for prior, mode in (('full', 'limited'), ('limited', 'full')):
+                    self.assertEqual(store.require().access, prior)
+                    clock, observed, registered = [0.0], [], []
+                    # Only the kit's waiting clock is virtual. The late update
+                    # uses the exact wheel's real signed heartbeat and config
+                    # adoption; production cadence and code are unchanged.
+                    def advance(_interval):
+                        clock[0] += 1
+                        if clock[0] == HEARTBEAT_INTERVAL_SECONDS:
+                            heartbeat(client, store)
+                    def app(current, *, after_reserve):
+                        command_id = plane.enqueue('app_control', {'operation': 'reserve_lab_app_port',
+                            'arguments': {'app_id': 'cadence-' + current}})
+                        claimed = client.post_json(f'/api/connected-hosts/{config.host_id}/commands/claim',
+                            {'workspace_commands': True, 'native_execution': True, 'app_commands': True,
+                             'app_protocol': 'http-stream-v1', 'active_apps': []})['commands'][0]
+                        self.assertEqual(claimed['id'], command_id)
+                        self.assertEqual(claimed['execution_scope'], 'workspace' if current == 'limited' else 'host')
+                        self.assertEqual(store.require().access, prior)
+                        after_reserve()
+                        self.assertEqual(store.require().access, current)
+                        registered.append(current)
+                    with patch.object(acceptance, 'time', SimpleNamespace(monotonic=lambda: clock[0], sleep=advance)):
+                        result = delta.exercise_access_transition(plane, mode,
+                            configured_access=lambda: store.require().access, native_app=app,
+                            wait=acceptance.wait, progress=lambda **value: observed.append(value))
+                    self.assertEqual(clock[0], HEARTBEAT_INTERVAL_SECONDS)
+                    self.assertEqual(registered, [mode])
+                    self.assertTrue(result['reservation_before_heartbeat'])
+                    self.assertIsNone(plane._heartbeat_access)
+                    self.assertEqual(observed[-1]['assertion'], 'ACCESS_TRANSITION_ADOPTED_MODE')
+                    self.assertEqual(report.public({'access_transition': observed[-1]}),
+                                     {'access_transition': observed[-1]})
+        finally:
+            plane.stop()
+
     def test_open_descriptions_workload_and_public_projection(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'owned-file'

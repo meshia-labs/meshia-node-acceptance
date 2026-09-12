@@ -51,7 +51,7 @@ jobs:
         run: python -m unittest -v test_kit test_fixture_cow
       - name: Check changed-path workload and fixture ordering
         if: inputs.profile != 'full'
-        run: python -m unittest -v test_preparation.Preparation.test_unbound_release_fails_before_artifact_access test_preparation.Preparation.test_open_descriptions_workload_and_public_projection test_preparation.Preparation.test_access_transition_fixture_preserves_complete_heartbeats
+        run: python -m unittest -v test_preparation.Preparation.test_unbound_release_fails_before_artifact_access test_preparation.Preparation.test_open_descriptions_workload_and_public_projection test_preparation.Preparation.test_access_transition_fixture_preserves_complete_heartbeats test_preparation.Preparation.test_real_signed_access_adoption_at_normal_heartbeat_cadence test_preparation.Preparation.test_access_transition_timeout_and_bad_prior_are_safe_and_release_fixture
       - name: Stage verified artifacts on a fresh hosted account
         run: python acceptance.py fetch --directory "$MESHIA_ACCEPTANCE_DIR"
       - name: Native signed service, mount, Full and Workspace-only

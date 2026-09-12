@@ -634,26 +634,13 @@ def acceptance(directory, *, profile="changed-paths"):
                registry_unchanged=True, registry_present=before['local_present'])
 
     def transition_native_app(mode):
-        previous = configured_access()
-        require(previous in ('full', 'limited') and previous != mode,
-                'App transition must begin in the other compute mode')
-        plane.begin_access_transition(mode)
-        try:
-            # Complete an ordinary prior-mode heartbeat, admit a new-mode
-            # signed reservation, then let the next heartbeat adopt that mode.
-            require(plane.heartbeat_observed.wait(30), 'Ordinary heartbeat did not report the prior fixture snapshot')
-            require(configured_access() == previous, 'Access changed before the prior snapshot was released')
-            def after_reserve():
-                require(configured_access() == previous, 'Reservation did not precede the access heartbeat')
-                plane.release_access_heartbeat()
-                wait('delayed access heartbeat applied', lambda: configured_access() == mode, 15)
-            native_app(mode, after_reserve=after_reserve)
-            record('native_app_access_transition', mode=mode, previous_mode=previous,
-                   reservation_before_heartbeat=True, access_applied_before_register=True,
-                   signed_app_lane=True, deterministic_fixture_ordering=True,
-                   production_concurrency_tested=False, owned_process_stopped=True)
-        finally:
-            plane.release_access_heartbeat()
+        from native_delta_acceptance import exercise_access_transition
+        def progress(**facts):
+            receipt['access_transition'] = facts
+            write_json(directory / 'receipt.json', receipt)
+        facts = exercise_access_transition(plane, mode, configured_access=configured_access,
+            native_app=native_app, wait=wait, progress=progress)
+        record('native_app_access_transition', **facts)
 
     def durable_rename(source, destination, expected):
         # Wait cheaply on the fixture's durable namespace, then verify its
