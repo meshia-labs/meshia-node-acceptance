@@ -9,6 +9,8 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import re
+import subprocess
 from pathlib import Path
 import sys
 import threading
@@ -17,6 +19,14 @@ import unittest
 import zipfile
 
 from production_install import VERSION, SOURCE, HASHES, fetch_exact
+
+
+def require_binding():
+    names = ('release.json', f'meshia_node-{VERSION}-py3-none-any.whl')
+    if VERSION != '1.3.40' or not re.fullmatch(r'[0-9a-f]{40}', SOURCE):
+        raise ValueError('Linux40 release source is not bound')
+    if any(not re.fullmatch(r'[0-9a-f]{64}', HASHES.get(name, '')) for name in names):
+        raise ValueError('Linux40 release artifacts are not bound')
 
 
 def verify_installed(directory):
@@ -180,12 +190,66 @@ class LinuxFuse(unittest.TestCase):
     def test_reusable_cold_source_over_materialized_destination(self):
         self.replacement(False, cold_source=True)
 
+    def removed_reader(self, replace):
+        original = b'meshia retained original inode\n'
+        replacement = b'new namespace bytes with a different size\n'
+        with mounted(original, materialize=True) as (root, plane, coordinator, database, workspace, settled):
+            path = root / 'data.bin'
+            reader = os.open(path, os.O_RDONLY)
+            try:
+                self.assertEqual(os.pread(reader, 100, 0), original)
+                if replace:
+                    source = root / 'replacement.tmp'
+                    source.write_bytes(replacement)
+                    os.replace(source, path)
+                    self.assertEqual(path.read_bytes(), replacement)
+                    self.assertFalse(source.exists())
+                else:
+                    path.unlink()
+                    self.assertFalse(path.exists())
+                stat = os.fstat(reader)
+                self.assertEqual(stat.st_size, len(original))
+                self.assertEqual(stat.st_nlink, 0)
+                self.assertEqual(os.pread(reader, 100, 0), original)
+                os.fsync(reader)
+                settled(lambda: not database.list_operations() and (
+                    plane.fabric_files.get('data.bin') == replacement if replace
+                    else 'data.bin' not in plane.v2_entries))
+                self.assertEqual(os.fstat(reader).st_size, len(original))
+                self.assertEqual(os.pread(reader, 100, 0), original)
+            finally:
+                os.close(reader)
+
+    def test_replaced_read_description_survives_nullpath(self):
+        self.removed_reader(True)
+
+    def test_unlinked_read_description_survives_nullpath(self):
+        self.removed_reader(False)
+
+    def test_stdlib_default_temporary_file_lifecycle(self):
+        # Same unmodified stdlib probe as Mac40, executed on this real mount.
+        probe = Path(__file__).with_name('tempfile_probe.py').read_text()
+        with mounted() as (root, plane, coordinator, database, workspace, settled):
+            temporary_root = root / 'tmp'
+            temporary_root.mkdir()
+            result = subprocess.run([sys.executable, '-I', '-c', probe], cwd=root,
+                env={**os.environ, 'TMPDIR': str(temporary_root)},
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads(result.stdout)
+            self.assertTrue(all(value is True for key, value in receipt.items() if key != 'uid'))
+            self.assertEqual(receipt['uid'], os.getuid())
+            self.assertEqual(list(temporary_root.iterdir()), [])
+            settled(lambda: not database.list_operations())
+            self.assertFalse(any(path.startswith('tmp/') for path in plane.v2_entries))
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['fetch', 'run'])
     parser.add_argument('--directory', type=Path, required=True)
     args = parser.parse_args()
+    require_binding()
     args.directory.mkdir(parents=True, exist_ok=True)
     if args.action == 'fetch':
         manifest = json.loads(fetch_exact('release.json', args.directory).read_text())
@@ -199,7 +263,7 @@ def main():
                    actual_linux_fuse=True, production_enrollment=False)
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(LinuxFuse))
     receipt.update(tests_run=result.testsRun, failures=len(result.failures), errors=len(result.errors),
-                   skipped=len(result.skipped), passed=result.wasSuccessful() and result.testsRun == 5 and not result.skipped)
+                   skipped=len(result.skipped), passed=result.wasSuccessful() and result.testsRun == 8 and not result.skipped)
     (args.directory / 'linux-fuse-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return 0 if receipt['passed'] else 1
 
