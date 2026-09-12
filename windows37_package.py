@@ -10,9 +10,11 @@ import sys
 import urllib.request
 import zipfile
 
-NAME = "meshia_node-1.3.38-py3-none-any.whl"
-PUBLIC_SHA = "6a570e0cd2b5f034861a051f7db454ee3249fe6e71a4cc51112389f1da6e7fe6"
-SOURCE = "1084de4e5011b04dd4f5fffd26b3f87692686da0"
+NAME = "meshia_node-1.3.40-py3-none-any.whl"
+PUBLIC_SHA = None
+SOURCE = None
+if PUBLIC_SHA is None or SOURCE is None:
+    raise SystemExit("NATIVE40_RELEASE_UNBOUND: pin exact public wheel and source before dispatch")
 directory = Path("windows37-evidence")
 directory.mkdir(exist_ok=True)
 if sys.argv[1] == "download":
@@ -27,7 +29,7 @@ elif sys.argv[1] == "verify":
     from meshia_node.winsec import current_user_sid, is_owner_restricted, ensure_owner_restricted
     assert sys.platform == "win32"
     assert not hasattr(os, "pread"), "Windows must exercise portable seek/read"
-    assert importlib.metadata.version("meshia-node") == "1.3.38"
+    assert importlib.metadata.version("meshia-node") == "1.3.40"
     assert "site-packages" in str(Path(meshia_node.__file__).resolve())
     assert "workspace_win" in WorkspaceBoundary.__module__
     assert not ctypes.windll.shell32.IsUserAnAdmin(), "Qualification requires an ordinary user"
