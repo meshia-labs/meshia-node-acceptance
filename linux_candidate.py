@@ -5,14 +5,15 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import unittest
 
 import linux_fuse_acceptance as public
 
-SOURCE = '3591b484637dd76a5e4c4cf20e6a38bb0b29ac62'
+SOURCE = '06adc2e1b17fc92b2652d6b39e1d61ee89bc81b7'
 OVERLAYS = {
     'fabric_mount.py': 'e0f641c50a9b683bef83eb6740b8099ab675f47cc0dc79766848b932aa9e5f70',
-    'linux_fuse.py': 'f7dd7b9a111ee0ee976d2e61f36e4e54413825f77bc033796a17356b435613fd',
+    'linux_fuse.py': '2905d79b4e5d45e0ec81b5de801effa67ed19fbf186cad752d462c0b17cb2e7e',
 }
 
 
@@ -55,6 +56,7 @@ def main():
     receipt.update(source_candidate=True, public_artifact_acceptance=False, candidate_source=SOURCE,
                    candidate_module_sha256=OVERLAYS, uid=os.getuid(), kernel=os.uname().release,
                    authority='signed_loopback_fixture', actual_linux_fuse=True, production_enrollment=False)
+    receipt['libfuse_version'] = subprocess.check_output(['fusermount', '--version'], text=True).strip()
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(CandidateLinux))
     receipt.update(tests_run=result.testsRun, failures=len(result.failures), errors=len(result.errors),
                    skipped=len(result.skipped), passed=result.wasSuccessful() and result.testsRun == 9 and not result.skipped)

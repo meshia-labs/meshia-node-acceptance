@@ -30,6 +30,7 @@ class LinuxInodeOperations:
         self._lock = threading.RLock()
         self._paths: dict[int, str] = {}
         self._aliases: dict[str, set[int]] = {}
+        self._failed_retirements: dict[str, str] = {}
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.operations, name)
@@ -49,18 +50,31 @@ class LinuxInodeOperations:
             if len(names) >= 3:
                 target = os.fsdecode(names[1])
         self.context.request = (opcode, target)
+        self.context.retirements = []
         try:
             callback()
         finally:
             del self.context.request
+            del self.context.retirements
 
     def open(self, path: str, flags: int) -> int:
         with self._lock:
             if path in self._aliases:
-                raise self.operations.fuse_error(errno.ENOENT)
-        handle = self.operations.open(path, flags)
+                # If the user rename failed after libfuse hid its destination,
+                # an already-cached public dentry still names that inode. OPEN
+                # carries no path on the wire; route it to the unchanged public
+                # name. LOOKUP cannot discover the hidden alias itself.
+                opcode, _ = getattr(self.context, "request", (None, None))
+                public = self._failed_retirements.get(path) if opcode == 14 else None
+                if public is None:
+                    raise self.operations.fuse_error(errno.ENOENT)
+            else:
+                public = path
+        handle = self.operations.open(public, flags)
         with self._lock:
             self._paths[handle] = path
+            if path in self._aliases:
+                self._aliases[path].add(handle)
         return handle
 
     def create(self, path: str, mode: int, fi: Any = None) -> int:
@@ -104,8 +118,17 @@ class LinuxInodeOperations:
                 self._aliases[new] = handles.intersection(self._paths)
                 for handle in self._aliases[new]:
                     self._paths[handle] = new
+            if opcode in (_RENAME, _RENAME2):
+                self.context.retirements.append((old, new))
             return 0
-        result = self.operations.rename(old, new)
+        try:
+            result = self.operations.rename(old, new)
+        except BaseException:
+            with self._lock:
+                for public, hidden in getattr(self.context, "retirements", []):
+                    if public == new and hidden in self._aliases:
+                        self._failed_retirements[hidden] = public
+            raise
         with self._lock:
             for handle, path in list(self._paths.items()):
                 if path == old:
@@ -119,6 +142,7 @@ class LinuxInodeOperations:
                 if opcode == _UNLINK:
                     raise self.operations.fuse_error(errno.ENOENT)
                 del self._aliases[path]
+                self._failed_retirements.pop(path, None)
                 return 0
         return self.operations.unlink(path)
 
@@ -135,6 +159,7 @@ class LinuxInodeOperations:
         with self._lock:
             self._aliases.clear()
             self._paths.clear()
+            self._failed_retirements.clear()
 
 
 def run_linux_fuse(module: Any, operations: Any, mountpoint: str, **options: Any) -> None:
