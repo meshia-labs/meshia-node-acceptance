@@ -1,9 +1,10 @@
 # Linux40 mounted acceptance
 
-Prepared only. `SOURCE` and `HASHES` in `production_install.py` are deliberately
-empty. The Linux entrypoint rejects them before creating its output directory
-or making an artifact request. The owner must bind the verified public40
-source, manifest SHA256 and wheel SHA256 before authorizing one dispatch.
+Prepared only. `SOURCE` and `HASHES` in `production_install.py` now bind the
+owner's signed native40 candidate (source `844b6487dcf6ba93509bf54986ff831c0a093729`).
+The owner must verify exact public delivery before authorizing one dispatch.
+Missing source or artifact bindings are rejected before output-directory
+creation or an artifact request; four focused contract checks retain this guard.
 
 The registered `macos-acceptance.yml` workflow filename is reused only on this
 isolated Linux branch. Its job is explicitly Linux40 on ordinary-user Ubuntu

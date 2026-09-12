@@ -14,9 +14,12 @@ from acceptance import account, validate_owned, read_json, fresh_account, cleanu
 
 ORIGIN = 'https://meshia.io'
 VERSION = '1.3.40'
-# Blocking placeholders: bind only after the exact public release is verified.
-SOURCE = ''
-HASHES = {}
+# Signed candidate bound; dispatch still requires owner's public delivery proof.
+SOURCE = '844b6487dcf6ba93509bf54986ff831c0a093729'
+HASHES = {
+    'release.json': '62dd5078807e41f9fde6191d3312225e42a20324cb47d3fecc6961b460dd7a80',
+    'meshia_node-1.3.40-py3-none-any.whl': '89a180456175a2568229daa5efe01e8613ec01e00822b78bfe4f30f2012257a9',
+}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')
