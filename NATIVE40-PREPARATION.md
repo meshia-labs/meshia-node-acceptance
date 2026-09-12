@@ -20,3 +20,14 @@ grant changes, revocation or mount writes are permitted by this preparation.
 
 Current verification: 29 focused kit checks passed, including source_pending
 and strict boolean-string decoding. This is preparation, not acceptance.
+
+After the original replacement probe passes, run `tempfile_probe.py` as a
+separate normal Limited native command with the same declared workspace cwd.
+Use managed Python with `-I -c` and the unchanged probe source. Isolated mode
+still permits the ordinary tempfile module to read TMPDIR.
+The probe does not pass a directory to `TemporaryFile` or replace its behavior.
+It asserts the actual default temp directory is under cwd, exercises buffered
+stdio, seek, shrinking/extension, zero fill, fstat/fsync, then verifies descriptor
+closure and no namespace leftovers. Do not run it concurrently with unrelated
+writers in the same temporary directory. A failure must be preserved without
+retry and must not be combined with replacement-probe acceptance.
