@@ -41,6 +41,9 @@ class PublicLinux(public.LinuxFuse):
             return handle
         def delayed_getattr(owner, path, fh=None):
             attrs = original_getattr(owner, path, fh)
+            if armed.is_set():
+                observed.append({'hidden': path in owner._aliases, 'failed': path in owner._failed_retirements,
+                                 'nlink': attrs['st_nlink'], 'nullpath': path is None})
             if armed.is_set() and path in owner._failed_retirements and attrs['st_nlink'] == 2:
                 armed.clear()
                 observed.append({'hidden_old_nlink': attrs['st_nlink']})
@@ -74,15 +77,11 @@ class PublicLinux(public.LinuxFuse):
                     notify.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int64, ctypes.c_int64]
                     notify.restype = ctypes.c_int
                     self.assertEqual(notify(retained['channel'], retained['nodeid'], -1, 0), 0)
-                    libc = ctypes.CDLL(None, use_errno=True)
-                    libc.statx.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p]
-                    libc.statx.restype = ctypes.c_int
                     def stat_worker():
-                        buffer = ctypes.create_string_buffer(256)
-                        # AT_EMPTY_PATH | AT_STATX_FORCE_SYNC requests fresh inode attrs.
-                        result = libc.statx(reader, b'', 0x1000 | 0x2000, 0x7ff, buffer)
-                        if result != 0:
-                            failures.append(('statx', ctypes.get_errno()))
+                        try:
+                            observed.append({'returned_nlink': os.fstat(reader).st_nlink})
+                        except OSError as error:
+                            failures.append(('fstat', error.errno))
                     def rename_worker():
                         try:
                             os.replace(source, dest)
@@ -92,7 +91,7 @@ class PublicLinux(public.LinuxFuse):
                     armed.set()
                     stat_thread = threading.Thread(target=stat_worker)
                     stat_thread.start()
-                    self.assertTrue(computed.wait(3), 'forced stat did not reach old hidden GETATTR')
+                    self.assertTrue(computed.wait(3), repr({'barrier': 'not reached', 'observed': observed, 'errors': failures}))
                     rename_thread = threading.Thread(target=rename_worker)
                     rename_thread.start()
                     self.assertTrue(renamed.wait(3), 'libfuse serialized rename behind hidden GETATTR')
