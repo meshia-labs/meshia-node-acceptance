@@ -41,5 +41,5 @@ class ReleaseBinding(unittest.TestCase):
     def test_public_runner_has_all_nine_kernel_cases(self):
         from linux_public import PublicLinux
         names = unittest.defaultTestLoader.getTestCaseNames(PublicLinux)
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 10)
         self.assertIn('test_failed_replacement_retains_original_public_name', names)

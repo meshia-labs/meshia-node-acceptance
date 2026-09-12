@@ -1,10 +1,10 @@
-name: Native41 public artifact Linux inode acceptance
+name: Native41 Linux old-stat reply interleaving diagnostic
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: native41-linux-public
+  group: native41-linux-stat-interleave
   cancel-in-progress: false
 jobs:
   linux:
