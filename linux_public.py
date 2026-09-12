@@ -62,6 +62,8 @@ class PublicLinux(public.LinuxFuse):
                     with self.assertRaises(OSError) as error:
                         os.replace(source, dest)
                     self.assertEqual(error.exception.errno, errno.EBUSY)
+                    self.assertEqual(dest.read_bytes(), b'EDITinal destination bytes')
+                    self.assertEqual(os.fstat(writer).st_nlink, 1)
                     reader = os.open(dest, os.O_RDONLY)
                     os.close(writer)
                     writer = None
