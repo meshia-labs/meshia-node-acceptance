@@ -1,13 +1,13 @@
-# Mac40 acceptance preparation — unbound and not dispatched
+# Mac40 acceptance preparation — candidate bound, not dispatched
 
 Derived from kit `985362d`, including exact native logger string-boolean
 decoding. The observer now distinguishes `source_pending` from `source_changed`.
 The original mounted replacement probe remains byte-identical to Mac38.
 
-`production_install.py` specifies version 1.3.40 with `SOURCE=None` and empty
-`HASHES`; it refuses artifact access/enrollment until exact bindings are supplied.
-Root must bind public40 source, pointer, installer, wheel and signed app hashes
-and verify production delivery before any dispatch. The workflow uses the new
+`production_install.py` pins version 1.3.40 source
+`844b6487dcf6ba93509bf54986ff831c0a093729` and exact candidate pointer,
+installer, wheel and signed app hashes. Root must verify production delivery
+before any dispatch. The workflow uses the new
 `MESHIA_MAC40_PAIR_GRANT` name and a separate concurrency group.
 
 No fresh workspace, owner deadline, grant, guest identity or cleanup state is
