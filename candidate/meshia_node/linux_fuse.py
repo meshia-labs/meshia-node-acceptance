@@ -89,7 +89,9 @@ class LinuxInodeOperations:
             # still supplies its previous public pathname to fgetattr.
             alias = self._paths.get(fh, path) if fh not in (None, 0) else path
             handles = self._aliases.get(alias) if alias is not None else None
-            handle = (fh if fh in handles else next(iter(handles), None)) if handles is not None else None
+            if handles is not None and fh not in (None, 0) and fh not in handles:
+                raise self.operations.fuse_error(errno.EBADF)
+            handle = (fh if fh not in (None, 0) else next(iter(handles), None)) if handles is not None else None
         if handles is not None:
             opcode, _ = getattr(self.context, "request", (None, None))
             if opcode == 1:  # Never make a hidden alias discoverable by LOOKUP.
