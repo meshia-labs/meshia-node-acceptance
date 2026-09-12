@@ -3,6 +3,19 @@ from pathlib import Path
 from cache_diagnostics import public_event,journal,cache_name,target_database,error_enum
 from report import public
 class Diagnostics(unittest.TestCase):
+    def test_guard_snapshot_strict_identity_and_logger_integer_strings(self):
+        event={'event':'fabric_mount_rename_busy','reason':'source_pending',
+          'pending_kind':'delete','pending_mutation_id':'11111111-1111-4111-8111-111111111111',
+          'pending_journal_seq':'4','latest_kind':'put','latest_mutation_id':'22222222-2222-4222-8222-222222222222',
+          'latest_journal_seq':'5','payload':'private','path':'private'}
+        result=public_event(event)
+        self.assertEqual(result['pending_kind'],'delete');self.assertEqual(result['latest_kind'],'put')
+        self.assertEqual(result['pending_journal_seq'],4);self.assertEqual(result['latest_journal_seq'],5)
+        self.assertEqual(public(result),result);self.assertNotIn('private',json.dumps(result))
+        for bad in (True,-1,2**63,'01','4 secret','9999999999999999999999999'):
+            self.assertNotIn('pending_journal_seq',public_event({**event,'pending_journal_seq':bad}))
+        damaged=public_event({**event,'pending_kind':'private','latest_mutation_id':'private'})
+        self.assertNotIn('pending_kind',damaged);self.assertNotIn('latest_mutation_id',damaged)
     def test_busy_reason_and_flags_are_strict_and_survive_projection(self):
         value={'event':'fabric_mount_rename_busy','reason':'destination_publishing',
           'source_cached':False,'destination_open_reader':True,'destination_session':'private',

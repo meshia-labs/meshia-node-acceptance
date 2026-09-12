@@ -22,6 +22,7 @@ SAFE_KEYS.update(('installer_readiness', 'native_mount_enabled', 'manager_active
                  'mounted', 'state', 'workspace_execution', 'present', 'ready',
                  'policy_supported', 'reason', 'fuse_prerequisites'))
 SAFE_KEYS.add('probe_phase')
+SAFE_KEYS.update('pending_kind pending_mutation_id pending_journal_seq latest_kind latest_mutation_id latest_journal_seq'.split())
 SAFE_KEYS.update('source_cached destination_cached source_session destination_session destination_modified destination_publishing destination_open_writer destination_open_reader'.split())
 SAFE_KEYS.add('host_id')
 SAFE_KEYS.update(('mutation_id','journal_seq','predecessor_mutation_id','base_generation','base_digest',

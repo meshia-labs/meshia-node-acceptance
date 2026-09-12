@@ -16,6 +16,14 @@ def public_event(value):
         # Reject every other string and integer instead of coercing truthiness.
         result.update({key:(value[key] if type(value[key]) is bool else value[key]=='True')
           for key in BUSY_FLAGS if type(value.get(key)) is bool or value.get(key) in ('True','False')})
+        for prefix in ('pending','latest'):
+            kind=value.get(prefix+'_kind')
+            if kind in ('put','delete','rename'):result[prefix+'_kind']=kind
+            identity=identifier(value.get(prefix+'_mutation_id'))
+            if identity is not None:result[prefix+'_mutation_id']=identity
+            sequence=value.get(prefix+'_journal_seq')
+            if isinstance(sequence,str) and re.fullmatch(r'0|[1-9][0-9]{0,18}',sequence):sequence=int(sequence)
+            if type(sequence) is int and 0<=sequence<2**63:result[prefix+'_journal_seq']=sequence
         return result
     if value.get('event')!='fabric_mount_operation_failed' or value.get('operation') not in OPS:return None
     code=value.get('error_code')

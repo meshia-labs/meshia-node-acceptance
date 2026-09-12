@@ -4,11 +4,11 @@ from pathlib import Path
 
 def prepare(candidate,wheel):
     value=json.loads(candidate.read_text())
-    assert value['version']=='1.3.41' and value['source_dirty'] is False
+    assert value['version']=='1.3.42' and value['source_dirty'] is False
     assert re.fullmatch('[a-f0-9]{40}',value['source_commit'])
-    assert value['package']=='meshia_node-1.3.41-py3-none-any.whl'
-    assert value['macos_node_app']=='MeshiaNode-1.3.41.app.zip'
-    assert value['install']['posix']=='install-1.3.41.sh'
+    assert value['package']=='meshia_node-1.3.42-py3-none-any.whl'
+    assert value['macos_node_app']=='MeshiaNode-1.3.42.app.zip'
+    assert value['install']['posix']=='install-1.3.42.sh'
     hashes={'release.json':value.get('release_json_sha256',hashlib.sha256(candidate.read_bytes()).hexdigest()),value['package']:value['sha256'],
       value['macos_node_app']:value['macos_node_app_sha256'],value['install']['posix']:value['install']['posix_sha256']}
     assert all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in hashes.values())

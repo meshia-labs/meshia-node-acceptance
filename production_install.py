@@ -13,15 +13,10 @@ import zipfile
 from acceptance import account, validate_owned, read_json, fresh_account, cleanup, run, write_json, mounts, assess_gatekeeper
 
 ORIGIN = 'https://meshia.io'
-VERSION = '1.3.41'
+VERSION = '1.3.42'
 # Candidate pinned; root must verify exact public delivery before dispatch.
-SOURCE = '4de0b28d5a8e8d410a9d9f79da4fb57aec921d17'
-HASHES = {
-    'release.json':'f10c4fe47f5f84f234e35df16ba1a3234caa3f7129a560eb6a1d7aca2358bd5b',
-    'install-1.3.41.sh':'4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7',
-    'meshia_node-1.3.41-py3-none-any.whl':'fa63cc38e1fa9f4d06426e5ac691425f9e54fa504382a5062349d29366e9da06',
-    'MeshiaNode-1.3.41.app.zip':'212c158a54f5e304ebb701677734151beac16b0306a74ec50b34ad1b45f6b9f2',
-}
+SOURCE = None
+HASHES = {}
 
 def fetch_exact(name, directory):
     if name not in HASHES:raise ValueError('Release artifact is not pinned')
