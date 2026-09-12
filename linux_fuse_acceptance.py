@@ -142,7 +142,16 @@ class LinuxFuse(unittest.TestCase):
                         self.assertIsNone(workspace.stat_fingerprint(temp.name))
                         # Exercise precisely the clean materialized target
                         # plus remote-only source branch changed in 1.3.39.
-                        self.assertTrue(coordinator.materialize(dest.name))
+                        from meshia_node.fabric_mount import _fingerprint_text
+                        coordinator.materialize(dest.name)
+                        with coordinator._coordinator_lock:
+                            cached = database.get_materialized(dest.name)
+                            durable = coordinator._remote_entry_for_write(dest.name)
+                            fingerprint = workspace.stat_fingerprint(dest.name)
+                            self.assertIsNotNone(fingerprint)
+                            self.assertEqual(cached.state, 'clean')
+                            self.assertEqual(cached.clean_digest, durable.digest)
+                            self.assertEqual(cached.stat_fingerprint, _fingerprint_text(fingerprint))
                     else:
                         create(temp, value)
                     if publish_source and not cold_source:

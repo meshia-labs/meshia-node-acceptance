@@ -651,11 +651,14 @@ class FabricV2Fixture:
                         self.fabric_files.pop(source, None); self.fabric_file_blocks.pop(source, None)
                 else:
                     self.v2_entries.pop(path, None); self.fabric_files.pop(path, None); self.fabric_file_blocks.pop(path, None)
-                self.v2_journal.append({'seq': seq, 'path': path, 'op': op['op'], 'kind': kind,
-                    'digest': actual if op['op'] == 'rename' else op.get('digest'), 'prev_digest': op.get('prev_digest'),
+                # M1848 projects PUT-with-source as one atomic RENAME event.
+                # Merely echoing its PUT request leaves clients' source rows
+                # alive after the authority consumed that name.
+                self.v2_journal.append({'seq': seq, 'path': source or path, 'op': 'rename' if source is not None else op['op'], 'kind': kind,
+                    'digest': actual if op['op'] == 'rename' else op.get('digest'),
+                    'prev_digest': op['source_prev_digest'] if source is not None else op.get('prev_digest'),
                     'size_bytes': current['size_bytes'] if op['op'] == 'rename' else op.get('size_bytes', 0),
-                    'blocks': blocks, 'destination_path': op.get('destination_path'), 'mutation_id': mutation, 'committed_at': now,
-                    **({'source_path': source, 'source_prev_digest': op['source_prev_digest']} if source is not None else {}),
+                    'blocks': blocks, 'destination_path': path if source is not None else op.get('destination_path'), 'mutation_id': mutation, 'committed_at': now,
                     **({'modified_at': op['modified_at']} if op.get('modified_at') is not None else {})})
                 verdicts.append({'index': index, 'path': path, 'status': 'applied', 'seq': seq,
                     **({'modified_at': op['modified_at']} if op.get('modified_at') is not None else {})})
