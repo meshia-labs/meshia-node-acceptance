@@ -54,7 +54,12 @@ class Preparation(unittest.TestCase):
                                 access='files', workspace=Path(directory) / 'workspace')
                 store = ConfigStore(paths)
                 client = SignedClient(store, DeviceIdentity.load_or_create(paths.identity_dir))
-                attach(client, store); heartbeat(client, store)
+                attach(client, store)
+                leases = []
+                heartbeat(client, store, on_lease_renewed=lambda attachment_id, expires_at:
+                          leases.append((attachment_id, expires_at)))
+                self.assertEqual(leases[0][0], store.require().attachment_id)
+                self.assertTrue(leases[0][1].endswith('Z'))
                 for prior, mode in (('full', 'limited'), ('limited', 'full')):
                     self.assertEqual(store.require().access, prior)
                     clock, observed, registered = [0.0], [], []

@@ -1344,8 +1344,14 @@ class FakeControlPlane:
         attachment_id = str(payload.get("attachment_id", ""))
         if attachment_id not in self.attachments:
             raise Rejected(409, "ATTACHMENT_INACTIVE")
-        self.attachments[attachment_id]["lease_expires_at"] = self.now() + 90
-        body = {"attachment_id": attachment_id, "lease_seconds": 90}
+        expires_at = self.now() + 90
+        self.attachments[attachment_id]["lease_expires_at"] = expires_at
+        body = {
+            "ok": True,
+            "attachment_id": attachment_id,
+            "lease_seconds": 90,
+            "lease_expires_at": self._lease_timestamp(expires_at),
+        }
         if self.access_mode is not None:
             body["access_mode"] = self.access_mode
         body["workspace_name"] = self.workspace_name
