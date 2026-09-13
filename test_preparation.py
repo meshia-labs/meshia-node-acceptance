@@ -39,7 +39,7 @@ class Preparation(unittest.TestCase):
 
     def test_real_signed_access_adoption_at_normal_heartbeat_cadence(self):
         acceptance.verify_release()
-        sys.path.insert(0, str(acceptance.ROOT / 'release/meshia_node-1.3.30-py3-none-any.whl'))
+        sys.path.insert(0, str(acceptance.ROOT / 'release/meshia_node-1.3.42-py3-none-any.whl'))
         from fixture_plane import AccessTransitionPlane
         from meshia_node.client import SignedClient
         from meshia_node.config import ConfigStore, Paths
@@ -111,7 +111,7 @@ class Preparation(unittest.TestCase):
         # Exact distribution and real signed endpoints. No blocked HTTP response,
         # native process, mount, primary state or product monkeypatch.
         acceptance.verify_release()
-        sys.path.insert(0, str(acceptance.ROOT / 'release/meshia_node-1.3.30-py3-none-any.whl'))
+        sys.path.insert(0, str(acceptance.ROOT / 'release/meshia_node-1.3.42-py3-none-any.whl'))
         from fixture_plane import AccessTransitionPlane
         from fixture_control_plane import NATIVE_WORKSPACE_PROFILE
         from meshia_node.client import SignedClient
@@ -176,7 +176,7 @@ class Preparation(unittest.TestCase):
 
     def test_unbound_release_fails_before_artifact_access(self):
         lock = json.loads((acceptance.ROOT / 'release-lock.json').read_text())
-        self.assertEqual(lock['version'], '1.3.30')
+        self.assertEqual(lock['version'], '1.3.42')
         if lock['source_commit'] is None:
             self.assertIsNone(lock['package_commit'])
             self.assertTrue(all(value is None for value in lock['artifacts'].values()))

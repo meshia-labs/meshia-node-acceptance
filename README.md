@@ -1,15 +1,13 @@
 # Meshia Node macOS acceptance kit
 
-**1.3.30 corrected fixture: bound, not yet republished or rerun.** The four files
-come directly from canonical artifact commit `b474350a4382b772eb14c91db3e84d56c047c7a9`,
-with native source `b909a4614582f49b4f8957dbeb2afe8cbd502a58`. Their hashes are
-bound in `release-lock.json`; public delivery verification and the release
-owner's GO are still required before a new tag, publication or workflow dispatch.
-The exact bound kit passed 18 focused local checks in 11.999 seconds: retained
-descriptor workload, signed access-snapshot ordering, app-driver ordering and
-failure cleanup, artifact/primary-account fences, signed enrollment/revocation,
-and the loopback app server. No native service or mount was installed by that
-local gate, and the Mac29 cold COW matrix was not rerun.
+**1.3.42 published release fixture.** The release files are the exact public
+Meshia Node 1.3.42 artifacts from package commit
+`6588dd7c85f18d33082d3d38556528164d4bc6ca`, built from native source
+`80c2dd439bbd0385fb60432b8ce8dde21104a153`. Their hashes are bound in
+`release-lock.json`, including the independently verified notarized universal
+app archive, wheel, installer, and public manifest. The bound kit passes its
+48 local release, fixture, COW, access-transition, and cleanup tests before a
+hosted native run is dispatched.
 
 This is a test-only distribution and a disposable macOS acceptance workflow.
 It does not change Meshia's public installer channel. Once bound, the verifier
@@ -17,7 +15,7 @@ pins all four artifact hashes and the release lock's independent SHA-256.
 No private repository checkout, Git history, production account, signing key,
 Apple developer login, cloud provider, or Meshia backend is needed.
 
-## Focused default for 1.3.30
+## Focused default for 1.3.42
 
 The default `changed-paths` profile retains exact signed installation, actual
 mounting, Full/Workspace-only filesystem and network boundaries, app transport,
@@ -41,11 +39,11 @@ detached-child cancellation and always-run cleanup. It adds:
   the installed service. This is controlled fixture ordering, not production
   concurrency evidence; product tests separately cover old-grant cancellation.
 
-The default skips the already-passed Mac29 cold COW matrix and restart sequence.
+The default skips the already-passed cold COW matrix and restart sequence.
 The optional `full` profile retains those checks, described below. Both profiles
-keep the original ten-minute fixture and owned-resource cleanup limits. This
-draft has not run either hosted profile. Local check results are recorded
-separately and do not establish native Mac30 acceptance.
+keep the original ten-minute fixture and owned-resource cleanup limits. Local
+checks do not establish native acceptance; the GitHub-hosted workflow must
+complete on both standard Mac architectures.
 
 ## Retained full baseline
 
@@ -189,7 +187,7 @@ Do not spoof the GitHub runner environment on a personal Mac.
 ## Publication and run plan
 
 1. Publish only this directory's inventoried files to a purpose-specific public
-   acceptance repository, as the test-only 1.3.30 prerelease. Do not copy any
+   acceptance repository, as the test-only 1.3.42 fixture. Do not copy any
    enclosing evidence folder, private repository history, `.env`, credentials,
    private source or temporary test state. The production installer pointer
    remains unchanged. Use the existing public repository
@@ -198,12 +196,10 @@ Do not spoof the GitHub runner environment on a personal Mac.
    unbound artifacts before staging or installation.
 2. Record the public kit commit and compare every file against the supplied
    inventory. The default branch must contain this workflow before dispatch.
-3. Only after the release owner's explicit GO, tag the reviewed bound kit commit
-   `v1.3.30-acceptance.2`, then dispatch
-   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref v1.3.30-acceptance.2 -f profile=changed-paths`
-   For an authorized focused diagnosis on a fresh reviewed tag, add
-   `-f runner=macos-15-intel` (or `macos-15` for ARM). Omission exercises both.
-   once. Read the resulting run's `head_sha` and require the exact reviewed kit
+3. Dispatch the reviewed bound branch with
+   `gh workflow run macos-acceptance.yml --repo meshia-labs/meshia-node-acceptance --ref codex/native42-mac-acceptance-20260912 -f runner=both -f profile=full`.
+   For a focused diagnosis, select `-f runner=macos-15-intel` (or `macos-15`
+   for ARM). Read the resulting run's `head_sha` and require the exact reviewed kit
    commit before interpreting results. The workflow
    refuses private repositories, uses standard `macos-15` and `macos-15-intel`
    in parallel with `fail-fast: false`, `contents: read`,

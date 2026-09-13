@@ -21,12 +21,12 @@ import app_acceptance
 import cow_acceptance
 import report
 
-EXPECTED_SOURCE_COMMIT = 'b909a4614582f49b4f8957dbeb2afe8cbd502a58'
-EXPECTED_PACKAGE_COMMIT = 'b474350a4382b772eb14c91db3e84d56c047c7a9'
+EXPECTED_SOURCE_COMMIT = '80c2dd439bbd0385fb60432b8ce8dde21104a153'
+EXPECTED_PACKAGE_COMMIT = '6588dd7c85f18d33082d3d38556528164d4bc6ca'
 
 # Import the verified distribution, never private checkout source.
 acceptance.verify_release()
-sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.30-py3-none-any.whl'))
+sys.path.insert(0, str(acceptance.ROOT / 'release' / 'meshia_node-1.3.42-py3-none-any.whl'))
 
 class ReleaseBoundary(unittest.TestCase):
     def test_cow_probe_bytes_on_plain_fixture_do_not_claim_native_mount(self):
@@ -183,7 +183,7 @@ class ReleaseBoundary(unittest.TestCase):
 
     def test_exact_distributed_bytes_and_signed_plist(self):
         lock, manifest = acceptance.verify_release()
-        self.assertEqual(manifest['version'], '1.3.30')
+        self.assertEqual(manifest['version'], '1.3.42')
         self.assertEqual(lock['source_commit'], EXPECTED_SOURCE_COMMIT)
         self.assertEqual(lock['package_commit'], EXPECTED_PACKAGE_COMMIT)
 
@@ -193,7 +193,7 @@ class ReleaseBoundary(unittest.TestCase):
                 root = Path(name)
                 shutil.copytree(acceptance.ROOT / 'release', root / 'release')
                 shutil.copy2(acceptance.ROOT / 'release-lock.json', root / 'release-lock.json')
-                app = root / 'release' / 'MeshiaNode-1.3.30.app.zip'
+                app = root / 'release' / 'MeshiaNode-1.3.42.app.zip'
                 if mode == 'bytes':
                     app.write_bytes(app.read_bytes() + b'changed')
                 elif mode == 'lock':
@@ -243,7 +243,7 @@ class ReleaseBoundary(unittest.TestCase):
     def test_receipt_projection_discards_credentials_and_command_output(self):
         document = {'passed': True, 'token': 'private-sentinel', 'config': {'secret': 'hidden'},
                     'steps': [{'name': 'test', 'output_base64': 'private-sentinel'}],
-                    'artifacts': {'meshia_node-1.3.30-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
+                    'artifacts': {'meshia_node-1.3.42-py3-none-any.whl': 'a' * 64, 'credential': 'private-sentinel'},
                     'failure': {'phase': 'fixture', 'message': 'private-sentinel'}}
         rendered = json.dumps(report.public(document))
         self.assertNotIn('private-sentinel', rendered)

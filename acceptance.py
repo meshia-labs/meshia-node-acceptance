@@ -47,7 +47,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-LOCK_SHA256 = "0663443123ad1d8b87338a4efbfa9e48d28bcf3c1c326efc8c86d79f2b2c55e9"
+LOCK_SHA256 = "ab292bc1f64143f287cde1a243206c1aba7f2ece07326f8305c9d3be304d2b5e"
 LABEL = "io.meshia.node"
 PUBLIC_CA_PROBE = """import json,ssl
 count = ssl.create_default_context().cert_store_stats()['x509_ca']
@@ -117,7 +117,7 @@ def native_completion_diagnostics(completion):
     text = output.decode(errors='replace') + '\n' + (message[:4096] if isinstance(message, str) else '')
     fixed = ['Default public CA store is empty',
              'The command exceeded its timeout and its process session was stopped.']
-    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.30-py3-none-any.whl') as archive:
+    with zipfile.ZipFile(ROOT / 'release/meshia_node-1.3.42-py3-none-any.whl') as archive:
         for module in ('native_command', 'macos_native', 'native_execution', 'workspace'):
             source = archive.read('meshia_node/' + module + '.py').decode()
             fixed.extend(re.findall(r'raise [A-Za-z_]\w*\("([^"$\n]{8,240})"\)', source))
@@ -170,7 +170,7 @@ def assess_gatekeeper(app):
 def subprocess_diagnostics(argv, returncode, stdout, stderr):
     # Match only fixed literal text in the hash-pinned installer. Never return
     # a captured line, expanded variable, URL, account detail or exception body.
-    script = (ROOT / 'release/install-1.3.30.sh').read_text()
+    script = (ROOT / 'release/install-1.3.42.sh').read_text()
     output = (stdout + b'\n' + stderr)[-1024*1024:].decode(errors='replace')
     fixed = re.findall(r'\b(?:die|step|log) "([^"$`\n]{12,240})"', script)
     from cow_acceptance import PROBE_FAILURE_MARKERS
@@ -255,9 +255,9 @@ def verify_release(root=None):
         require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Artifact checksum differs")
     manifest = read_json(release / "release.json")
     validate_manifest(manifest, lock["source_commit"],
-                      lock["artifacts"]["meshia_node-1.3.30-py3-none-any.whl"],
-                      lock["artifacts"]["MeshiaNode-1.3.30.app.zip"])
-    require(manifest["version"] == lock["version"] == "1.3.30", "Unexpected release version")
+                      lock["artifacts"]["meshia_node-1.3.42-py3-none-any.whl"],
+                      lock["artifacts"]["MeshiaNode-1.3.42.app.zip"])
+    require(manifest["version"] == lock["version"] == "1.3.42", "Unexpected release version")
     require(manifest["install"]["posix_sha256"] == lock["artifacts"][manifest["install"]["posix"]],
             "Installer binding differs")
     with zipfile.ZipFile(release / manifest["macos_node_app"]) as archive:
@@ -418,7 +418,7 @@ def fuse_prerequisite_projection():
     # Execute only the read-only verifier from the exact hash-pinned installer.
     # Capture individual failed predicates, not command output or arbitrary paths.
     verify_release()
-    source = (ROOT / 'release/install-1.3.30.sh').read_text()
+    source = (ROOT / 'release/install-1.3.42.sh').read_text()
     constants = '\n'.join(re.findall(r'^FUSE_T_[A-Z_]+="[^"\n]+"$', source, re.M))
     functions = source[source.index('fuse_t_path_is_safe()'):source.index('write_fuse_t_choice_changes()')]
     libraries = (('/usr/local/lib', 'libfuse-t.dylib'),

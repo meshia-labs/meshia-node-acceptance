@@ -53,7 +53,7 @@ SAFE_KEYS.update(('poll_count', 'app_count', 'manifest_head_before', 'manifest_h
                  'registry_unchanged', 'registry_present', 'deterministic_fixture_ordering',
                  'production_concurrency_tested'))
 SAFE_KEYS.update(('access_transition', 'assertion', 'condition_passed', 'adoption_timeout_seconds'))
-ARTIFACT_NAMES = {'meshia_node-1.3.30-py3-none-any.whl', 'MeshiaNode-1.3.30.app.zip', 'install-1.3.30.sh'}
+ARTIFACT_NAMES = {'meshia_node-1.3.42-py3-none-any.whl', 'MeshiaNode-1.3.42.app.zip', 'install-1.3.42.sh'}
 
 def public(value, *, depth=0):
     if depth > 7:

@@ -1,12 +1,12 @@
 {
-  "schema": "meshia.standalone_macos_acceptance.v1",
-  "package_commit": "b474350a4382b772eb14c91db3e84d56c047c7a9",
-  "source_commit": "b909a4614582f49b4f8957dbeb2afe8cbd502a58",
-  "version": "1.3.30",
   "artifacts": {
-    "MeshiaNode-1.3.30.app.zip": "07116e06c206fe364dc23b1a3c2a7870fa3bc848ced3f55455b4b25ec47f317e",
-    "install-1.3.30.sh": "4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7",
-    "meshia_node-1.3.30-py3-none-any.whl": "9fcbc62647249fe7e5011fc8f87b7aa54af05c1270fb94a11004b2e5d77753b8",
-    "release.json": "370f2859137d462d9777cc9ea6cecdf88ca7bc94a450ee57c7842dacd5e377f2"
-  }
+    "MeshiaNode-1.3.42.app.zip": "ddebfa0b6d962881480c6864c9acbf6fb8ca3675404a0e00c4d7e9c86ac40d57",
+    "install-1.3.42.sh": "4709dab517723a001572a8de5dcaf897f74c2f7c957dd6070ba157b128f847b7",
+    "meshia_node-1.3.42-py3-none-any.whl": "0cec659277eebc9ec44a218f263a9c3a775e761f35a4f71c440383deb809bb1c",
+    "release.json": "dcb61f386b99a61e71cb2edbb765dd3295e4298e80dd4be798e5768ed65f9aea"
+  },
+  "package_commit": "6588dd7c85f18d33082d3d38556528164d4bc6ca",
+  "schema": "meshia.standalone_macos_acceptance.v1",
+  "source_commit": "80c2dd439bbd0385fb60432b8ce8dde21104a153",
+  "version": "1.3.42"
 }
